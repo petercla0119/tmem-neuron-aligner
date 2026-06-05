@@ -1,6 +1,6 @@
 # TMEM Neuron Aligner
 
-A lab-shareable starter codebase for turning Nikon ND2/tiled spinning-disk images into stitched, registered, neuron-centered month-long time series. The first goal is not a perfect automated pipeline; it is a reproducible workflow that lets the lab integrate images now, inspect the same neuron over roughly a month, and progressively add quantification.
+A lab-shareable starter codebase for turning Nikon ND2/tiled spinning-disk images into stitched, registered, neuron-centered month-long time series. 
 
 ## What this pipeline does
 
