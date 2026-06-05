@@ -1,0 +1,2 @@
+plate,well,roi_id,reference_day,x,y,width,height,notes
+Plate001,A01,Neuron001,Day01,1000,1200,512,512,example neuron crop centered on Day01

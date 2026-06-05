@@ -1,0 +1,4 @@
+plate,day,well,genotype,condition,replicate,raw_path,channels,alignment_channel,pixel_size_um,z_step_um,notes
+Plate001,Day01,A01,TMEM106B,PLD3-TMEM106BFC-mCherry,1,data/raw/Plate001/Day01/Well_A01,"brightfield;mCherry;green;DAPI",brightfield,0.325,,example row
+Plate001,Day07,A01,TMEM106B,PLD3-TMEM106BFC-mCherry,1,data/raw/Plate001/Day07/Well_A01,"brightfield;mCherry;green;DAPI",brightfield,0.325,,example row
+Plate001,Day14,A01,TMEM106B,PLD3-TMEM106BFC-mCherry,1,data/raw/Plate001/Day14/Well_A01,"brightfield;mCherry;green;DAPI",brightfield,0.325,,example row

@@ -1,0 +1,58 @@
+project_name: TMEM106B_month_long_neuron_alignment
+
+paths:
+  raw_root: data/raw
+  interim_root: data/interim
+  processed_root: data/processed
+  plate_map_csv: configs/plate_map_template.csv
+  roi_annotations_csv: configs/roi_annotations_template.csv
+
+image_axes:
+  # Standard internal order used by the pipeline.
+  # t = day/timepoint, c = channel, z = z-plane, y/x = image plane.
+  internal_order: tczyx
+  has_z: false
+
+channels:
+  # Edit these names to match your microscope export.
+  alignment_channel: brightfield
+  phenotype_channel: mCherry
+  lysosome_channel: green
+  nuclear_channel: DAPI
+
+stitching:
+  # Use metadata positions when available. If unavailable, use grid settings below.
+  use_stage_positions: true
+  grid_rows: null
+  grid_cols: null
+  tile_overlap_fraction: 0.10
+  snake_order: false
+  row_major: true
+
+registration:
+  reference_day: Day01
+  well_registration:
+    method: phase_cross_correlation
+    upsample_factor: 10
+    max_shift_pixels: 500
+  roi_registration:
+    method: phase_cross_correlation
+    upsample_factor: 20
+    max_shift_pixels: 100
+
+roi:
+  default_crop_width: 512
+  default_crop_height: 512
+  padding_pixels: 64
+
+quantification:
+  puncta_sigma: 1.0
+  puncta_min_size_pixels: 6
+  diffuse_percentile_background: 20
+  puncta_threshold_method: otsu
+
+export:
+  write_ome_tiff: true
+  write_ome_zarr: true
+  zarr_chunks: [1, 1, 1, 512, 512]
+  zarr_downscale_levels: 4
