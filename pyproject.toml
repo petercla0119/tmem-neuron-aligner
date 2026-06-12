@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tmem-neuron-aligner"
+version = "0.1.0"
+description = "Lab-shareable pipeline for stitching, aligning, viewing, and quantifying month-long TMEM106B neuron imaging experiments."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Ward Lab / collaborators"}]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "scikit-image>=0.22",
+    "tifffile>=2023.8.30",
+    "zarr>=2.16,<3",
+    "ome-zarr>=0.8",
+    "dask[array]>=2023.9",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.7",
+    "click>=8.1"
+]
+
+[project.optional-dependencies]
+nd2 = ["nd2>=0.10"]
+bioformats = ["bioio>=1.1", "bioio-nd2>=1.0"]
+viewer = ["napari[all]>=0.4.19"]
+dev = ["pytest>=7.4", "ruff>=0.5", "jupyterlab>=4.0", "ipykernel>=6.0"]
+
+[project.scripts]
+tmem-align = "tmem_align.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+addopts = "-p no:napari"

@@ -1,0 +1,91 @@
+project_name: TMEM106B_month_long_neuron_alignment
+
+paths:
+  # Prefer absolute paths outside the GitHub repository for large image data.
+  raw_root: /absolute/path/to/TMEM106B/raw_nd2
+  interim_root: /absolute/path/to/TMEM106B/interim
+  processed_root: /absolute/path/to/TMEM106B/processed
+  plate_map_csv: configs/plate_map_template.csv
+  roi_annotations_csv: configs/roi_annotations_template.csv
+  image_manifest_csv: configs/image_manifest.csv
+
+channels:
+  use_fluorescence_only: true
+  exclude_brightfocus_or_brightfield: true
+  # Replace aliases after running inspect-nd2 on a representative file.
+  alignment:
+    aliases: [GFP, Green, "488", CellMarker, Hoechst, DAPI, "405"]
+    exclude: [mCherry, Red, "561", Brightfield, BrightFocus]
+    allow_mcherry_fallback: false
+  phenotype:
+    name: mCherry
+    aliases: [mCherry, Red, "561"]
+  nuclear:
+    aliases: [Hoechst, DAPI, "405"]
+    required: false
+
+conditions:
+  # The four-condition block repeats alphabetically across rows/replicates:
+  # C/G/K/... = PLD3 only; D/H/L/... = PLD3 + TMEM106B;
+  # E/I/M/... = PLD3 + mCherry; F/J/N/... = PLD3 + TMEM106B + mCherry.
+  # Only rows with has_mcherry=true are valid for mCherry puncta/diffusion analysis.
+  C:
+    label: PLD3_only
+    has_pld3: true
+    has_tmem106b: false
+    has_mcherry: false
+    mcherry_analysis_valid: false
+  D:
+    label: PLD3_TMEM106B
+    has_pld3: true
+    has_tmem106b: true
+    has_mcherry: false
+    mcherry_analysis_valid: false
+  E:
+    label: PLD3_mCherry
+    has_pld3: true
+    has_tmem106b: false
+    has_mcherry: true
+    mcherry_analysis_valid: true
+  F:
+    label: PLD3_TMEM106B_mCherry
+    has_pld3: true
+    has_tmem106b: true
+    has_mcherry: true
+    mcherry_analysis_valid: true
+
+stitching:
+  use_stage_positions: true
+  grid_rows: null
+  grid_cols: null
+  tile_overlap_fraction: 0.10
+  snake_order: false
+
+registration:
+  reference_day: Day01
+  well_registration:
+    method: phase_cross_correlation
+    upsample_factor: 10
+    max_shift_pixels: 500
+  roi_registration:
+    method: phase_cross_correlation
+    upsample_factor: 20
+    max_shift_pixels: 100
+
+roi:
+  default_crop_width: 512
+  default_crop_height: 512
+  padding_pixels: 64
+
+quantification:
+  run_only_when_mcherry_valid: true
+  puncta_sigma: 1.0
+  puncta_min_size_pixels: 6
+  diffuse_percentile_background: 20
+  puncta_threshold_method: otsu
+
+export:
+  write_ome_tiff: true
+  write_ome_zarr: true
+  zarr_chunks: [1, 1, 1, 512, 512]
+  zarr_downscale_levels: 4

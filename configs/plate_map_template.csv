@@ -1,0 +1,9 @@
+plate,day,well,well_group,condition,replicate,has_pld3,has_tmem106b,has_mcherry,mcherry_analysis_valid,raw_path,scene_index,notes
+Plate001,Day01,C01,C,PLD3_only,1,true,false,false,false,/absolute/path/to/Day01.nd2,,negative control
+Plate001,Day01,D01,D,PLD3_TMEM106B,1,true,true,false,false,/absolute/path/to/Day01.nd2,,TMEM control without mCherry
+Plate001,Day01,E01,E,PLD3_mCherry,1,true,false,true,true,/absolute/path/to/Day01.nd2,,mCherry reporter control
+Plate001,Day01,F01,F,PLD3_TMEM106B_mCherry,1,true,true,true,true,/absolute/path/to/Day01.nd2,,primary experimental condition
+Plate001,Day01,G01,G,PLD3_only,2,true,false,false,false,/absolute/path/to/Day01.nd2,,repeated negative-control block
+Plate001,Day01,H01,H,PLD3_TMEM106B,2,true,true,false,false,/absolute/path/to/Day01.nd2,,repeated TMEM control without mCherry
+Plate001,Day01,I01,I,PLD3_mCherry,2,true,false,true,true,/absolute/path/to/Day01.nd2,,repeated mCherry reporter control
+Plate001,Day01,J01,J,PLD3_TMEM106B_mCherry,2,true,true,true,true,/absolute/path/to/Day01.nd2,,repeated primary experimental condition

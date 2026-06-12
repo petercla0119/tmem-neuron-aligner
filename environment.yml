@@ -1,0 +1,25 @@
+name: tmem-align
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - jupyterlab
+  - ipykernel
+  - numpy
+  - pandas
+  - scipy
+  - scikit-image
+  - tifffile
+  - dask
+  - pyyaml
+  - tqdm
+  - matplotlib
+  - click
+  - pip:
+      - nd2>=0.10
+      - ome-zarr>=0.9
+      - zarr<3
+      - napari[all]>=0.5
+      - pytest>=7.4
+      - -e .

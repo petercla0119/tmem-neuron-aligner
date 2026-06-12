@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+Untitled.ipynb
+
+# Imaging data - keep folder structure, never commit raw data
+*.nd2
+*.tif
+*.tiff
+*.ome.tif
+*.ome.tiff
+*.ome.zarr/
+*.zarr/
+data/raw/**
+data/interim/**
+data/processed/**
+!data/**/README.md
+!data/**/.gitkeep
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
