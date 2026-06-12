@@ -208,4 +208,14 @@ python scripts/run_f05_longitudinal_pilot.py
 
 This creates a three-day F05 `TCYX` OME-TIFF stack, registers later days to Day 8 using the 488nm channel, crops a common-overlap stack for quantification, and measures the 561nm mCherry channel across time. See `docs/F05_LONGITUDINAL_PILOT_RESULTS.md` for local output paths, registration shifts, and preliminary metrics.
 
+To run the matched E05 reporter-control and F05 primary comparison:
+
+```bash
+python scripts/run_f05_longitudinal_pilot.py --well E05
+python scripts/run_f05_longitudinal_pilot.py --well F05
+python scripts/compare_ef05_longitudinal.py
+```
+
+See `docs/EF05_LONGITUDINAL_COMPARISON.md` for the current matched pilot comparison.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.

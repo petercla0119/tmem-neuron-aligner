@@ -137,7 +137,7 @@ def main() -> None:
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     figure_path = processed_dir / f"{args.well}_days_{day_label(paths)}_mcherry_summary.png"
-    write_summary_figure(metrics, figure_path)
+    write_summary_figure(metrics, figure_path, args.well)
 
     print(f"Wrote raw stack: {raw_stack_path}")
     print(f"Wrote registered stack: {registered_stack_path}")
@@ -247,7 +247,7 @@ def write_tcyx(path: Path, stack: np.ndarray) -> None:
     tif.imwrite(path, stack, photometric="minisblack", metadata={"axes": "TCYX"}, ome=True)
 
 
-def write_summary_figure(metrics: pd.DataFrame, figure_path: Path) -> None:
+def write_summary_figure(metrics: pd.DataFrame, figure_path: Path, well: str) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(11, 3.5), constrained_layout=True)
     x = metrics["day"].astype(str)
     for ax, column, title in zip(
@@ -259,7 +259,7 @@ def write_summary_figure(metrics: pd.DataFrame, figure_path: Path) -> None:
         ax.plot(x, metrics[column], marker="o", linewidth=2)
         ax.set_title(title)
         ax.set_xlabel("Day")
-    fig.suptitle("F05 preliminary registered mCherry time series")
+    fig.suptitle(f"{well} preliminary registered mCherry time series")
     figure_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(figure_path, dpi=180)
     plt.close(fig)

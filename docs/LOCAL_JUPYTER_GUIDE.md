@@ -85,3 +85,13 @@ python scripts/run_f05_longitudinal_pilot.py
 This selects F05 Day 8, Day 25, and Day 39 fluorescence ND2 files, registers the day frames with the 488nm channel, writes `TCYX` OME-TIFF stacks, and quantifies 561nm mCherry in the common aligned overlap. See `docs/F05_LONGITUDINAL_PILOT_RESULTS.md`.
 
 For future files that expose tile positions, stitch each well/day first, then register the stitched well images across days. If Python stitching is not reliable for a given acquisition, Fiji Grid/Collection Stitching can be used as a validation or fallback step. For larger scale-up, prefer OME-Zarr for chunked viewing rather than large monolithic TIFF conversion.
+
+## Reproduce the matched E05/F05 comparison
+
+```bash
+python scripts/run_f05_longitudinal_pilot.py --well E05
+python scripts/run_f05_longitudinal_pilot.py --well F05
+python scripts/compare_ef05_longitudinal.py
+```
+
+The comparison combines metrics only after each well has been registered to its own Day 8 reference. See `docs/EF05_LONGITUDINAL_COMPARISON.md`.
