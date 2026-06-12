@@ -198,4 +198,14 @@ python scripts/run_ef05_mcherry_pilot.py
 
 This writes local outputs under `/Users/makennarodriguez/Documents/TMEM106B_interim/pilot/ef05_mcherry` and `/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/ef05_mcherry`. See `docs/PILOT_EF05_RESULTS.md` for the current preliminary metrics and caveats.
 
+## Reproducible same-well longitudinal pilot
+
+The main experimental direction is to align the same well across days and preserve channels in a scrollable time stack:
+
+```bash
+python scripts/run_f05_longitudinal_pilot.py
+```
+
+This creates a three-day F05 `TCYX` OME-TIFF stack, registers later days to Day 8 using the 488nm channel, crops a common-overlap stack for quantification, and measures the 561nm mCherry channel across time. See `docs/F05_LONGITUDINAL_PILOT_RESULTS.md` for local output paths, registration shifts, and preliminary metrics.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.

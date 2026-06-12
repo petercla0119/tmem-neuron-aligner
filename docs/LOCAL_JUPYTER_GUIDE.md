@@ -73,3 +73,15 @@ python scripts/run_ef05_mcherry_pilot.py
 ```
 
 This creates local interim previews and processed CSV/PNG summaries outside the repository. See `docs/PILOT_EF05_RESULTS.md` for the current preliminary values and limitations.
+
+## Reproduce the same-well longitudinal pilot
+
+The main analysis unit is the same well across days, not different wells aligned to each other. For a first scrollable time stack:
+
+```bash
+python scripts/run_f05_longitudinal_pilot.py
+```
+
+This selects F05 Day 8, Day 25, and Day 39 fluorescence ND2 files, registers the day frames with the 488nm channel, writes `TCYX` OME-TIFF stacks, and quantifies 561nm mCherry in the common aligned overlap. See `docs/F05_LONGITUDINAL_PILOT_RESULTS.md`.
+
+For future files that expose tile positions, stitch each well/day first, then register the stitched well images across days. If Python stitching is not reliable for a given acquisition, Fiji Grid/Collection Stitching can be used as a validation or fallback step. For larger scale-up, prefer OME-Zarr for chunked viewing rather than large monolithic TIFF conversion.
