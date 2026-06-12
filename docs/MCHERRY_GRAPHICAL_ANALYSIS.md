@@ -9,10 +9,11 @@ Rows without mCherry are excluded from puncta/diffusion interpretation. Missing 
 
 ## Current processed subset
 
-The current expanded pilot includes two columns of matched replicate wells:
+The current expanded pilot includes three columns of matched replicate wells:
 
 - Column 05: `E05/F05`, `I05/J05`, `M05/N05`
 - Column 06: `E06/F06`, `I06/J06`, `M06/N06`
+- Column 07: `E07/F07`, `I07/J07`, `M07/N07`
 - Days: `8`, `25`, `39`
 - Registration channel: `488nm Binned`, channel index `2`
 - mCherry phenotype channel: `561nm Binned`, channel index `1`
@@ -27,33 +28,52 @@ Generated figures and tables are local outputs outside Git:
 /Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/
   combined_mcherry_metrics.csv
   condition_day_summary.csv
+  condition_day_summary_qc_passing.csv
   paired_primary_minus_control_delta.csv
+  paired_primary_minus_control_delta_qc_passing.csv
   mcherry_metric_trajectories.png
+  mcherry_metric_trajectories_qc_passing.png
   mcherry_condition_mean_sem.png
+  mcherry_condition_mean_sem_qc_passing.png
   mcherry_primary_minus_control_delta.png
+  mcherry_primary_minus_control_delta_qc_passing.png
   mcherry_puncta_diffuse_scatter.png
+  mcherry_puncta_diffuse_scatter_qc_passing.png
 ```
 
 The most useful starting figure is:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/mcherry_condition_mean_sem.png
+/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/mcherry_condition_mean_sem_qc_passing.png
 ```
 
 ## Current condition means
 
-Mean values across the 6 processed reporter-control wells and 6 processed primary wells:
+Raw mean values across the 9 processed reporter-control wells and 9 processed primary wells:
 
 | Condition | Day | n wells | Puncta count | Punctate mean | Diffuse mean | Diffuse / punctate |
 |---|---:|---:|---:|---:|---:|---:|
-| PLD3 + mCherry | 8 | 6 | 849.3 | 195.6 | 8.78 | 0.045 |
-| PLD3 + mCherry | 25 | 6 | 689.7 | 131.1 | 7.25 | 0.055 |
-| PLD3 + mCherry | 39 | 6 | 827.0 | 214.3 | 8.31 | 0.039 |
-| PLD3 + TMEM106B + mCherry | 8 | 6 | 867.8 | 137.2 | 8.78 | 0.064 |
-| PLD3 + TMEM106B + mCherry | 25 | 6 | 733.0 | 44.1 | 7.32 | 0.166 |
-| PLD3 + TMEM106B + mCherry | 39 | 6 | 888.7 | 69.4 | 6.84 | 0.098 |
+| PLD3 + mCherry | 8 | 9 | 757.8 | 191.7 | 8.74 | 0.046 |
+| PLD3 + mCherry | 25 | 9 | 594.3 | 131.3 | 7.69 | 0.059 |
+| PLD3 + mCherry | 39 | 9 | 722.4 | 213.1 | 8.33 | 0.039 |
+| PLD3 + TMEM106B + mCherry | 8 | 9 | 865.0 | 136.5 | 8.78 | 0.064 |
+| PLD3 + TMEM106B + mCherry | 25 | 9 | 722.7 | 44.8 | 7.43 | 0.166 |
+| PLD3 + TMEM106B + mCherry | 39 | 9 | 867.4 | 70.7 | 6.89 | 0.097 |
+
+QC-passing mean values after excluding large-shift observations:
+
+| Condition | Day | n wells | Puncta count | Punctate mean | Diffuse mean | Diffuse / punctate |
+|---|---:|---:|---:|---:|---:|---:|
+| PLD3 + mCherry | 8 | 9 | 757.8 | 191.7 | 8.74 | 0.046 |
+| PLD3 + mCherry | 25 | 6 | 723.3 | 128.8 | 7.62 | 0.059 |
+| PLD3 + mCherry | 39 | 5 | 942.0 | 211.2 | 8.23 | 0.039 |
+| PLD3 + TMEM106B + mCherry | 8 | 9 | 865.0 | 136.5 | 8.78 | 0.064 |
+| PLD3 + TMEM106B + mCherry | 25 | 3 | 935.0 | 43.9 | 6.73 | 0.153 |
+| PLD3 + TMEM106B + mCherry | 39 | 7 | 945.0 | 69.0 | 6.52 | 0.095 |
 
 The clearest pilot signal is the Day 25 increase in diffuse/punctate mCherry score in the primary condition. The primary wells also show much lower punctate mean intensity than reporter controls at Day 25 and Day 39.
+
+The QC-filtered Day 25 primary group currently has only 3 passing wells, so it should be treated as a strong pilot signal plus a registration-QC warning, not as a final group statistic.
 
 ## Applicable dataset manifest
 
@@ -87,14 +107,20 @@ Registration QC for column 06 is under:
 /Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc_column06/
 ```
 
-Large-shift flags occurred in both columns, so the next optimization should be registration quality control before larger batch quantification. Large shifts may represent stage-position differences, FOV mismatch, or registration ambiguity, and can bias whole-frame quantification even when common-overlap cropping is used.
+Registration QC for column 07 is under:
+
+```text
+/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc_column07/
+```
+
+Large-shift flags occurred in all three processed columns. The graphical analysis now writes QC-passing summaries that exclude flagged well/day observations. Large shifts may represent stage-position differences, FOV mismatch, or registration ambiguity, and can bias whole-frame quantification even when common-overlap cropping is used.
 
 ## Further optimization and uses
 
 Recommended optimizations:
 
-1. Build an automated QC gate that excludes or flags wells with large registration shifts before group statistics.
-2. Use stage coordinates to pre-check whether Day 8, Day 25, and Day 39 are likely the same field of view before pixel registration.
+1. Use the automated QC gate as the primary analysis output for lab-facing summaries.
+2. Use stage coordinates to pre-check whether selected days are likely the same field of view before pixel registration.
 3. Add neuron or cell-body ROIs so quantification is not dominated by empty well area or field-level drift.
 4. Test multiple segmentation thresholds on a small hand-reviewed subset before locking the puncta metric.
 5. Keep using the 488nm channel for registration and 561nm for phenotype; do not use mCherry punctation itself as the registration target.

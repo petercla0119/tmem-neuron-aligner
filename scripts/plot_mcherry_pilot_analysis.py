@@ -49,27 +49,64 @@ def main() -> None:
     combined = collect_metrics(pilot_root)
     if combined.empty:
         raise FileNotFoundError(f"No mCherry metrics found under {pilot_root}")
+    qc = collect_registration_qc(pilot_root)
+    combined = attach_registration_qc(combined, qc)
+    qc_passing = combined[combined["registration_qc_pass"]].copy()
 
     group_summary = summarize_by_condition(combined)
     paired_delta = summarize_paired_delta(combined)
+    qc_group_summary = summarize_by_condition(qc_passing) if not qc_passing.empty else pd.DataFrame()
+    qc_paired_delta = summarize_paired_delta(qc_passing) if not qc_passing.empty else pd.DataFrame()
 
     combined_path = output_dir / "combined_mcherry_metrics.csv"
     group_path = output_dir / "condition_day_summary.csv"
     delta_path = output_dir / "paired_primary_minus_control_delta.csv"
+    qc_group_path = output_dir / "condition_day_summary_qc_passing.csv"
+    qc_delta_path = output_dir / "paired_primary_minus_control_delta_qc_passing.csv"
     combined.to_csv(combined_path, index=False)
     group_summary.to_csv(group_path, index=False)
     paired_delta.to_csv(delta_path, index=False)
+    qc_group_summary.to_csv(qc_group_path, index=False)
+    qc_paired_delta.to_csv(qc_delta_path, index=False)
 
     write_metric_grid(combined, output_dir / "mcherry_metric_trajectories.png")
-    write_group_summary(group_summary, output_dir / "mcherry_condition_mean_sem.png")
-    write_delta_figure(paired_delta, output_dir / "mcherry_primary_minus_control_delta.png")
+    write_metric_grid(qc_passing, output_dir / "mcherry_metric_trajectories_qc_passing.png")
+    write_group_summary(
+        group_summary,
+        output_dir / "mcherry_condition_mean_sem.png",
+        title="Condition mean +/- SEM for processed mCherry-valid wells",
+    )
+    write_group_summary(
+        qc_group_summary,
+        output_dir / "mcherry_condition_mean_sem_qc_passing.png",
+        title="Condition mean +/- SEM for QC-passing mCherry-valid observations",
+    )
+    write_delta_figure(
+        paired_delta,
+        output_dir / "mcherry_primary_minus_control_delta.png",
+        title="Matched primary-control differences",
+    )
+    write_delta_figure(
+        qc_paired_delta,
+        output_dir / "mcherry_primary_minus_control_delta_qc_passing.png",
+        title="Matched primary-control differences, QC-passing observations only",
+    )
     write_puncta_diffuse_scatter(combined, output_dir / "mcherry_puncta_diffuse_scatter.png")
+    write_puncta_diffuse_scatter(
+        qc_passing,
+        output_dir / "mcherry_puncta_diffuse_scatter_qc_passing.png",
+    )
 
     print(f"Wrote combined metrics: {combined_path}")
     print(f"Wrote condition/day summary: {group_path}")
     print(f"Wrote paired deltas: {delta_path}")
+    print(f"Wrote QC-passing condition/day summary: {qc_group_path}")
+    print(f"Wrote QC-passing paired deltas: {qc_delta_path}")
     print(f"Wrote figures under: {output_dir}")
     print(group_summary.to_string(index=False))
+    if not qc_group_summary.empty:
+        print("\nQC-passing summary:")
+        print(qc_group_summary.to_string(index=False))
 
 
 def collect_metrics(pilot_root: Path) -> pd.DataFrame:
@@ -92,6 +129,53 @@ def collect_metrics(pilot_root: Path) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     return pd.concat(rows, ignore_index=True).sort_values(["column", "replicate_pair", "well", "day"])
+
+
+def collect_registration_qc(pilot_root: Path) -> pd.DataFrame:
+    rows = []
+    for path in sorted(pilot_root.glob("registration_qc*/registration_qc_shift_summary.csv")):
+        df = pd.read_csv(path)
+        df.insert(0, "registration_qc_source", str(path))
+        rows.append(df)
+    if not rows:
+        return pd.DataFrame()
+    qc = pd.concat(rows, ignore_index=True)
+    qc["well"] = qc["well"].astype(str).str.upper()
+    qc["day"] = qc["day"].astype(int)
+    return qc.sort_values(["well", "day", "registration_qc_source"]).drop_duplicates(
+        ["well", "day"],
+        keep="last",
+    )
+
+
+def attach_registration_qc(combined: pd.DataFrame, qc: pd.DataFrame) -> pd.DataFrame:
+    if qc.empty:
+        combined = combined.copy()
+        combined["registration_qc_available"] = False
+        combined["large_shift"] = False
+        combined["registration_qc_pass"] = False
+        return combined
+
+    qc_columns = [
+        "registration_qc_source",
+        "well",
+        "day",
+        "dy",
+        "dx",
+        "alignment_corr_to_day8_common_overlap",
+        "mcherry_corr_to_day8_common_overlap",
+        "large_shift",
+        "registered_alignment_montage",
+        "registered_mcherry_montage",
+        "common_overlap_mcherry_montage",
+        "alignment_overlay",
+    ]
+    available_columns = [column for column in qc_columns if column in qc.columns]
+    merged = combined.merge(qc[available_columns], on=["well", "day"], how="left")
+    merged["registration_qc_available"] = merged["registration_qc_source"].notna()
+    merged["large_shift"] = merged["large_shift"].fillna(False).astype(bool)
+    merged["registration_qc_pass"] = merged["registration_qc_available"] & ~merged["large_shift"]
+    return merged
 
 
 def infer_well(path: Path) -> str | None:
@@ -174,6 +258,8 @@ def sem(series: pd.Series) -> float:
 
 
 def write_metric_grid(combined: pd.DataFrame, figure_path: Path) -> None:
+    if combined.empty:
+        return
     fig, axes = plt.subplots(2, 3, figsize=(15, 8), constrained_layout=True)
     colors = {
         "PLD3 + mCherry": "#2f6f9f",
@@ -204,7 +290,9 @@ def write_metric_grid(combined: pd.DataFrame, figure_path: Path) -> None:
     plt.close(fig)
 
 
-def write_group_summary(group_summary: pd.DataFrame, figure_path: Path) -> None:
+def write_group_summary(group_summary: pd.DataFrame, figure_path: Path, *, title: str) -> None:
+    if group_summary.empty:
+        return
     fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
     metrics = [
         ("puncta_count", "Puncta count"),
@@ -216,7 +304,7 @@ def write_group_summary(group_summary: pd.DataFrame, figure_path: Path) -> None:
         "PLD3 + mCherry": "#2f6f9f",
         "PLD3 + TMEM106B + mCherry": "#b55d15",
     }
-    for ax, (metric, title) in zip(axes.ravel(), metrics, strict=True):
+    for ax, (metric, metric_title) in zip(axes.ravel(), metrics, strict=True):
         for condition_label, df in group_summary.groupby("condition_label", sort=True):
             ax.errorbar(
                 df["day"],
@@ -228,36 +316,40 @@ def write_group_summary(group_summary: pd.DataFrame, figure_path: Path) -> None:
                 label=condition_label,
                 color=colors[condition_label],
             )
-        ax.set_title(title)
+        ax.set_title(metric_title)
         ax.set_xlabel("Day")
         ax.grid(True, alpha=0.25)
     axes[0, 0].legend()
-    fig.suptitle("Condition mean +/- SEM for processed mCherry-valid wells")
+    fig.suptitle(title)
     fig.savefig(figure_path, dpi=220)
     plt.close(fig)
 
 
-def write_delta_figure(paired_delta: pd.DataFrame, figure_path: Path) -> None:
+def write_delta_figure(paired_delta: pd.DataFrame, figure_path: Path, *, title: str) -> None:
+    if paired_delta.empty:
+        return
     fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
     metrics = [
         ("rupture_like_score_primary_minus_control", "Diffuse / punctate delta"),
         ("puncta_count_primary_minus_control", "Puncta count delta"),
     ]
-    for ax, (metric, title) in zip(axes, metrics, strict=True):
+    for ax, (metric, metric_title) in zip(axes, metrics, strict=True):
         for replicate_pair, df in paired_delta.groupby("replicate_pair", sort=True):
             ax.axhline(0, color="#555555", linewidth=1, alpha=0.7)
             ax.plot(df["day"], df[metric], marker="o", linewidth=2, label=replicate_pair)
-        ax.set_title(title)
+        ax.set_title(metric_title)
         ax.set_xlabel("Day")
         ax.set_ylabel("Primary minus matched control")
         ax.grid(True, alpha=0.25)
     axes[-1].legend(title="Pair")
-    fig.suptitle("Matched primary-control differences")
+    fig.suptitle(title)
     fig.savefig(figure_path, dpi=220)
     plt.close(fig)
 
 
 def write_puncta_diffuse_scatter(combined: pd.DataFrame, figure_path: Path) -> None:
+    if combined.empty:
+        return
     fig, ax = plt.subplots(figsize=(7, 5), constrained_layout=True)
     colors = {
         "PLD3 + mCherry": "#2f6f9f",
