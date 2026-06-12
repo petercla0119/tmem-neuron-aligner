@@ -63,3 +63,13 @@ F, J, N, ...: PLD3 + TMEM106B + mCherry; primary experimental wells
 Only the E/I/M-phase and F/J/N-phase wells are valid for mCherry punctation-versus-diffusion analysis. Do not interpret C/G/K-phase or D/H/L-phase wells as zero-puncta mCherry samples.
 
 It is fine that the files are ND2. Use the `nd2` package for lazy metadata inspection and Dask-backed indexed reads, then save only small pilot subsets as OME-TIFF or OME-Zarr when a downstream tool needs an interchange format.
+
+## Reproduce the current E05/F05 pilot
+
+From the repo root, after activating the environment:
+
+```bash
+python scripts/run_ef05_mcherry_pilot.py
+```
+
+This creates local interim previews and processed CSV/PNG summaries outside the repository. See `docs/PILOT_EF05_RESULTS.md` for the current preliminary values and limitations.

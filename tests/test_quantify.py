@@ -12,3 +12,13 @@ def test_quantify_puncta_vs_diffuse(tmp_path):
     df = quantify_puncta_vs_diffuse(path)
     assert len(df) == 3
     assert "rupture_like_score" in df.columns
+
+
+def test_quantify_single_frame_yx(tmp_path):
+    arr = np.zeros((64, 64), dtype=np.uint16)
+    arr[20:25, 20:25] = 1000
+    path = tmp_path / "frame.ome.tif"
+    tif.imwrite(path, arr, metadata={"axes": "YX"}, ome=True)
+    df = quantify_puncta_vs_diffuse(path)
+    assert len(df) == 1
+    assert df.loc[0, "puncta_count"] >= 1

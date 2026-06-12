@@ -188,4 +188,14 @@ It is not necessary to bulk-convert ND2 files before working with them. Use `nd2
 
 The mCherry puncta/diffusion analysis is restricted to wells marked `mcherry_analysis_valid=true`, normally the E/F phase of each repeated condition block such as E/F, I/J, and M/N. C/D-phase wells remain useful controls but must not be interpreted as zero-puncta samples.
 
+## Reproducible E05/F05 pilot
+
+After local setup, run the tiny E05/F05 image-level mCherry pilot:
+
+```bash
+python scripts/run_ef05_mcherry_pilot.py
+```
+
+This writes local outputs under `/Users/makennarodriguez/Documents/TMEM106B_interim/pilot/ef05_mcherry` and `/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/ef05_mcherry`. See `docs/PILOT_EF05_RESULTS.md` for the current preliminary metrics and caveats.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.

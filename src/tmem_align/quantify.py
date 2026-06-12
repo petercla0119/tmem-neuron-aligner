@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,6 +20,7 @@ def quantify_puncta_vs_diffuse(
     """Quantify punctate/diffuse signal over a neuron-centered time stack.
 
     Expected input shapes:
+    - YX for a single image frame
     - TYX for a single-channel stack
     - TCYX for a multichannel stack
     - TCZYX will be max-projected over Z for this first-pass analysis
@@ -34,7 +36,7 @@ def quantify_puncta_vs_diffuse(
         smooth = filters.gaussian(bg_corrected, sigma=1.0, preserve_range=True)
         threshold = _threshold(smooth, threshold_method)
         puncta_mask = smooth > threshold
-        puncta_mask = morphology.remove_small_objects(puncta_mask, min_size=min_size_pixels)
+        puncta_mask = _remove_small_objects(puncta_mask, min_size_pixels)
         labels = measure.label(puncta_mask)
         props = measure.regionprops(labels, intensity_image=bg_corrected)
 
@@ -55,7 +57,7 @@ def quantify_puncta_vs_diffuse(
                 "diffuse_mean": diffuse_mean,
                 "rupture_like_score": rupture_like_score,
                 "mean_puncta_area_pixels": float(np.mean([p.area for p in props])) if props else 0.0,
-                "max_puncta_intensity": float(max([p.max_intensity for p in props])) if props else 0.0,
+                "max_puncta_intensity": _max_region_intensity(props),
             }
         )
     return pd.DataFrame(rows)
@@ -63,6 +65,8 @@ def quantify_puncta_vs_diffuse(
 
 def _extract_phenotype(arr: np.ndarray, channel_index: int | None) -> np.ndarray:
     arr = np.squeeze(arr)
+    if arr.ndim == 2:  # YX
+        return arr[np.newaxis, :, :]
     if arr.ndim == 3:  # TYX
         return arr
     if arr.ndim == 4:  # TCYX
@@ -84,3 +88,22 @@ def _threshold(frame: np.ndarray, method: str) -> float:
     if method == "triangle":
         return float(filters.threshold_triangle(frame))
     raise ValueError(f"Unknown threshold method: {method}")
+
+
+def _remove_small_objects(mask: np.ndarray, min_size_pixels: int) -> np.ndarray:
+    try:
+        return morphology.remove_small_objects(mask, max_size=min_size_pixels - 1)
+    except TypeError:
+        return morphology.remove_small_objects(mask, min_size=min_size_pixels)
+
+
+def _max_region_intensity(props: list[Any]) -> float:
+    if not props:
+        return 0.0
+    values = []
+    for prop in props:
+        if hasattr(prop, "intensity_max"):
+            values.append(prop.intensity_max)
+        else:
+            values.append(prop.max_intensity)
+    return float(max(values))
