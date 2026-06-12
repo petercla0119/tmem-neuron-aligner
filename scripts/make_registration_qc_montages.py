@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processed-root", type=Path, default=DEFAULT_PROCESSED_ROOT)
     parser.add_argument("--wells", nargs="+", default=DEFAULT_WELLS)
     parser.add_argument("--days-label", default="day8_day25_day39")
+    parser.add_argument("--output-subdir", default="registration_qc")
     parser.add_argument("--alignment-channel", type=int, default=2)
     parser.add_argument("--mcherry-channel", type=int, default=1)
     parser.add_argument("--large-shift-threshold", type=float, default=500.0)
@@ -37,7 +38,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    out_dir = args.processed_root / "pilot" / "registration_qc"
+    out_dir = args.processed_root / "pilot" / args.output_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
