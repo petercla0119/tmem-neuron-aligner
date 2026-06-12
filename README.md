@@ -218,4 +218,14 @@ python scripts/compare_ef05_longitudinal.py
 
 See `docs/EF05_LONGITUDINAL_COMPARISON.md` for the current matched pilot comparison.
 
+To include the second matched replicate pair:
+
+```bash
+python scripts/run_f05_longitudinal_pilot.py --well I05
+python scripts/run_f05_longitudinal_pilot.py --well J05
+python scripts/compare_ef05_longitudinal.py
+```
+
+See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md` for the current four-well pilot and registration QC flags.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.
