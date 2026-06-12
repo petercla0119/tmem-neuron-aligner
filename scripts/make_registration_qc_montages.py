@@ -18,7 +18,7 @@ import tifffile as tif
 
 DEFAULT_INTERIM_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_interim")
 DEFAULT_PROCESSED_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_processed")
-DEFAULT_WELLS = ["E05", "F05", "I05", "J05"]
+DEFAULT_WELLS = ["E05", "F05", "I05", "J05", "M05", "N05"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -101,6 +101,7 @@ def main() -> None:
         write_day_overlay(stack[:, args.alignment_channel], days, overlay_png, title=f"{well} alignment-channel day overlay")
 
         for row in shifts.to_dict("records"):
+            day_index = days.index(int(row["day"]))
             dy = float(row["dy"])
             dx = float(row["dx"])
             summary_rows.append(
@@ -109,6 +110,14 @@ def main() -> None:
                     "day": int(row["day"]),
                     "dy": dy,
                     "dx": dx,
+                    "alignment_corr_to_day8_common_overlap": pearson_corr(
+                        overlap_stack[0, args.alignment_channel],
+                        overlap_stack[day_index, args.alignment_channel],
+                    ),
+                    "mcherry_corr_to_day8_common_overlap": pearson_corr(
+                        overlap_stack[0, args.mcherry_channel],
+                        overlap_stack[day_index, args.mcherry_channel],
+                    ),
                     "large_shift": abs(dy) > args.large_shift_threshold
                     or abs(dx) > args.large_shift_threshold,
                     "registered_alignment_montage": str(alignment_png),
@@ -175,6 +184,17 @@ def robust_limits(frames: np.ndarray) -> tuple[float, float]:
 def normalize_frame(frame: np.ndarray) -> np.ndarray:
     vmin, vmax = robust_limits(frame)
     return np.clip((frame.astype(np.float32) - vmin) / (vmax - vmin), 0, 1)
+
+
+def pearson_corr(a: np.ndarray, b: np.ndarray) -> float:
+    a_flat = a.astype(np.float32).ravel()
+    b_flat = b.astype(np.float32).ravel()
+    a_flat -= float(a_flat.mean())
+    b_flat -= float(b_flat.mean())
+    denom = float(np.linalg.norm(a_flat) * np.linalg.norm(b_flat))
+    if denom == 0:
+        return 0.0
+    return float(np.dot(a_flat, b_flat) / denom)
 
 
 if __name__ == "__main__":

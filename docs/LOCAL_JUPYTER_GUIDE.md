@@ -96,15 +96,17 @@ python scripts/compare_ef05_longitudinal.py
 
 The comparison combines metrics only after each well has been registered to its own Day 8 reference. See `docs/EF05_LONGITUDINAL_COMPARISON.md`.
 
-## Add the second matched replicate pair
+## Add additional matched replicate pairs
 
 ```bash
 python scripts/run_f05_longitudinal_pilot.py --well I05
 python scripts/run_f05_longitudinal_pilot.py --well J05
+python scripts/run_f05_longitudinal_pilot.py --well M05
+python scripts/run_f05_longitudinal_pilot.py --well N05
 python scripts/compare_ef05_longitudinal.py
 ```
 
-This writes a four-well comparison for E05/F05 and I05/J05. See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md`.
+This writes a six-well comparison for E05/F05, I05/J05, and M05/N05. See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md`.
 
 ## Create registration QC montages
 

@@ -218,15 +218,17 @@ python scripts/compare_ef05_longitudinal.py
 
 See `docs/EF05_LONGITUDINAL_COMPARISON.md` for the current matched pilot comparison.
 
-To include the second matched replicate pair:
+To include additional matched replicate pairs:
 
 ```bash
 python scripts/run_f05_longitudinal_pilot.py --well I05
 python scripts/run_f05_longitudinal_pilot.py --well J05
+python scripts/run_f05_longitudinal_pilot.py --well M05
+python scripts/run_f05_longitudinal_pilot.py --well N05
 python scripts/compare_ef05_longitudinal.py
 ```
 
-See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md` for the current four-well pilot and registration QC flags.
+See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md` for the current six-well pilot and registration QC flags.
 
 To create registration QC montages:
 

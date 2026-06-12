@@ -57,6 +57,20 @@ def main() -> None:
             / "j05_longitudinal"
             / "J05_days_day8_day25_day39_mcherry_metrics.csv",
         },
+        "M05": {
+            "condition": "PLD3_mCherry_reporter_control",
+            "pair": "M05_N05",
+            "path": pilot_root
+            / "m05_longitudinal"
+            / "M05_days_day8_day25_day39_mcherry_metrics.csv",
+        },
+        "N05": {
+            "condition": "PLD3_TMEM106B_mCherry_primary",
+            "pair": "M05_N05",
+            "path": pilot_root
+            / "n05_longitudinal"
+            / "N05_days_day8_day25_day39_mcherry_metrics.csv",
+        },
     }
 
     rows = []
@@ -97,7 +111,14 @@ def write_comparison_figure(combined: pd.DataFrame, figure_path: Path) -> None:
         ("diffuse_mean", "Diffuse mean"),
         ("rupture_like_score", "Diffuse / punctate mean"),
     ]
-    colors = {"E05": "#4c78a8", "F05": "#f58518", "I05": "#54a24b", "J05": "#e45756"}
+    colors = {
+        "E05": "#4c78a8",
+        "F05": "#f58518",
+        "I05": "#54a24b",
+        "J05": "#e45756",
+        "M05": "#72b7b2",
+        "N05": "#b279a2",
+    }
     for ax, (column, title) in zip(axes, metrics, strict=True):
         for well, df in combined.groupby("well", sort=True):
             ax.plot(
