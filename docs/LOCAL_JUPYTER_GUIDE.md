@@ -105,3 +105,11 @@ python scripts/compare_ef05_longitudinal.py
 ```
 
 This writes a four-well comparison for E05/F05 and I05/J05. See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md`.
+
+## Create registration QC montages
+
+```bash
+python scripts/make_registration_qc_montages.py
+```
+
+This writes local PNG montages and `registration_qc_shift_summary.csv` under `/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc`. Review the 488nm alignment-channel montages and RGB day overlays before scaling to more wells. See `docs/REGISTRATION_QC_MONTAGES.md`.

@@ -228,4 +228,12 @@ python scripts/compare_ef05_longitudinal.py
 
 See `docs/REPLICATE_LONGITUDINAL_COMPARISON.md` for the current four-well pilot and registration QC flags.
 
+To create registration QC montages:
+
+```bash
+python scripts/make_registration_qc_montages.py
+```
+
+See `docs/REGISTRATION_QC_MONTAGES.md` for the local output paths and current large-shift flags.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.
