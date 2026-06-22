@@ -21,6 +21,11 @@ import tifffile as tif
 from tmem_align.nd2_tools import inspect_nd2
 from tmem_align.quantify import quantify_puncta_vs_diffuse
 from tmem_align.register import apply_shift, register_translation
+from tmem_align.stage_qc import (
+    DEFAULT_STAGE_XY_THRESHOLD_UM,
+    build_stage_prefilter_rows,
+    read_nd2_stage_coordinates,
+)
 
 
 DEFAULT_RAW_ROOT = Path(
@@ -47,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alignment-channel", type=int, default=2, help="Default 2 = 488nm Binned.")
     parser.add_argument("--mcherry-channel", type=int, default=1, help="Default 1 = 561nm Binned.")
     parser.add_argument("--max-shift-pixels", type=float, default=1200.0)
+    parser.add_argument("--stage-xy-threshold-um", type=float, default=DEFAULT_STAGE_XY_THRESHOLD_UM)
+    parser.add_argument(
+        "--allow-stage-prefilter-fail",
+        action="store_true",
+        help="Continue even if the metadata-only stage-coordinate prefilter fails.",
+    )
     parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
     parser.add_argument("--max-output-bytes", type=int, default=5 * 1024**3)
     return parser.parse_args()
@@ -74,8 +85,23 @@ def main() -> None:
         "requested_days": args.days,
         "alignment_channel_index": args.alignment_channel,
         "mcherry_channel_index": args.mcherry_channel,
+        "stage_xy_threshold_um": args.stage_xy_threshold_um,
         "days": [],
     }
+
+    stage_prefilter = build_stage_prefilter(paths, threshold_um=args.stage_xy_threshold_um)
+    metadata["stage_prefilter"] = stage_prefilter
+    failed_stage = [row for row in stage_prefilter if not row["stage_prefilter_pass"]]
+    if failed_stage and not args.allow_stage_prefilter_fail:
+        failed = ", ".join(
+            f"day {row['day']} ({row['stage_prefilter_reason']}, "
+            f"xy={row['stage_distance_xy_um']:.2f} um)"
+            for row in failed_stage
+        )
+        raise ValueError(
+            f"Stage-coordinate prefilter failed for {args.well}: {failed}. "
+            "Use --allow-stage-prefilter-fail only after visual review."
+        )
 
     for day, nd2_path in paths:
         info = inspect_nd2(nd2_path)
@@ -94,6 +120,9 @@ def main() -> None:
                 "array_shape": list(arr.shape),
                 "array_dtype": str(arr.dtype),
                 "voxel_size": info["voxel_size"],
+                "stage_prefilter": next(
+                    row for row in stage_prefilter if int(row["day"]) == int(day)
+                ),
             }
         )
 
@@ -162,6 +191,35 @@ def select_well_paths(raw_root: Path, well: str, requested_days: list[int]) -> l
         if day in requested_days:
             candidates[day] = path
     return [(day, candidates[day]) for day in requested_days if day in candidates]
+
+
+def build_stage_prefilter(
+    paths: list[tuple[int, Path]],
+    *,
+    threshold_um: float,
+) -> list[dict[str, Any]]:
+    observations = []
+    for day, path in paths:
+        observations.append(
+            {
+                "day": int(day),
+                "well": infer_well(path),
+                "nd2_path": str(path),
+                **read_nd2_stage_coordinates(path),
+            }
+        )
+    return build_stage_prefilter_rows(
+        observations,
+        reference_day=int(paths[0][0]),
+        threshold_um=threshold_um,
+    )
+
+
+def infer_well(path: Path) -> str:
+    match = re.search(r"Well([A-P]\d{2})", path.name, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Could not infer well from {path.name}")
+    return match.group(1).upper()
 
 
 def read_cyx_nd2(path: Path, max_read_bytes: int) -> np.ndarray:

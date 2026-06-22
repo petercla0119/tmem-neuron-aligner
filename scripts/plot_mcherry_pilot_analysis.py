@@ -51,7 +51,18 @@ def main() -> None:
         raise FileNotFoundError(f"No mCherry metrics found under {pilot_root}")
     qc = collect_registration_qc(pilot_root)
     combined = attach_registration_qc(combined, qc)
-    qc_passing = combined[combined["registration_qc_pass"]].copy()
+    analysis_qc = collect_analysis_qc(pilot_root)
+    if not analysis_qc.empty:
+        combined = attach_analysis_qc(combined, analysis_qc)
+        qc_passing = combined[combined["include_in_qc_filtered_analysis"]].copy()
+    else:
+        combined["include_in_qc_filtered_analysis"] = combined["registration_qc_pass"]
+        combined["exclusion_reason"] = np.where(
+            combined["include_in_qc_filtered_analysis"],
+            "included",
+            "registration_qc_missing_or_failed",
+        )
+        qc_passing = combined[combined["registration_qc_pass"]].copy()
 
     group_summary = summarize_by_condition(combined)
     paired_delta = summarize_paired_delta(combined)
@@ -175,6 +186,38 @@ def attach_registration_qc(combined: pd.DataFrame, qc: pd.DataFrame) -> pd.DataF
     merged["registration_qc_available"] = merged["registration_qc_source"].notna()
     merged["large_shift"] = merged["large_shift"].fillna(False).astype(bool)
     merged["registration_qc_pass"] = merged["registration_qc_available"] & ~merged["large_shift"]
+    return merged
+
+
+def collect_analysis_qc(pilot_root: Path) -> pd.DataFrame:
+    path = pilot_root / "mcherry_qc_report" / "mcherry_longitudinal_qc_report.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    report = pd.read_csv(path)
+    report["well"] = report["well"].astype(str).str.upper()
+    report["day"] = report["day"].astype(int)
+    return report
+
+
+def attach_analysis_qc(combined: pd.DataFrame, report: pd.DataFrame) -> pd.DataFrame:
+    columns = [
+        "well",
+        "day",
+        "include_in_qc_filtered_analysis",
+        "exclusion_reason",
+        "stage_prefilter_available",
+        "stage_prefilter_pass",
+        "stage_prefilter_reason",
+        "stage_distance_xy_um",
+        "stage_xy_threshold_um",
+        "stage_distance_z_um",
+    ]
+    available = [column for column in columns if column in report.columns]
+    merged = combined.merge(report[available], on=["well", "day"], how="left")
+    merged["include_in_qc_filtered_analysis"] = (
+        merged["include_in_qc_filtered_analysis"].fillna(False).astype(bool)
+    )
+    merged["exclusion_reason"] = merged["exclusion_reason"].fillna("qc_report_missing")
     return merged
 
 

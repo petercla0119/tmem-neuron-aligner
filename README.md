@@ -238,4 +238,20 @@ python scripts/make_registration_qc_montages.py
 
 See `docs/REGISTRATION_QC_MONTAGES.md` for the local output paths and current large-shift flags.
 
+Before processing additional columns, build the metadata-only stage prefilter and lab-facing QC report:
+
+```bash
+python scripts/build_mcherry_stage_prefilter.py
+python scripts/build_mcherry_qc_report.py
+python scripts/plot_mcherry_pilot_analysis.py
+```
+
+For the current columns `05-07`, compare full-frame and foreground-ROI-restricted mCherry metrics:
+
+```bash
+python scripts/run_mcherry_roi_pilot.py --columns 05 06 07
+```
+
+See `docs/STAGE_QC_AND_ROI_WORKFLOW.md` for the current automated QC report, stage-prefilter output, ROI-restricted analysis, and caveats.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.

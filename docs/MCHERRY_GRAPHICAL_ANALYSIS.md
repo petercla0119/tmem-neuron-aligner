@@ -47,6 +47,12 @@ The most useful starting figure is:
 /Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/mcherry_condition_mean_sem_qc_passing.png
 ```
 
+The most useful lab-review QC report is:
+
+```text
+/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_qc_report/mcherry_longitudinal_qc_report.md
+```
+
 ## Current condition means
 
 Raw mean values across the 9 processed reporter-control wells and 9 processed primary wells:
@@ -115,6 +121,10 @@ Registration QC for column 07 is under:
 
 Large-shift flags occurred in all three processed columns. The graphical analysis now writes QC-passing summaries that exclude flagged well/day observations. Large shifts may represent stage-position differences, FOV mismatch, or registration ambiguity, and can bias whole-frame quantification even when common-overlap cropping is used.
 
+The metadata-only stage prefilter currently passes all `54` processed well/day observations at a `5 um` XY threshold. Z distances are retained but not used for exclusion because the ND2 files mix relative and absolute Z coordinate conventions across days.
+
+See `docs/STAGE_QC_AND_ROI_WORKFLOW.md` for the current stage prefilter, automated QC report, and first-pass ROI-restricted quantification workflow.
+
 ## Further optimization and uses
 
 Recommended optimizations:
@@ -134,3 +144,4 @@ Practical uses now:
 - Prioritize wells/days for manual visual review.
 - Generate figures for lab discussion.
 - Decide which subset is worth converting to a more viewer-friendly time-series format.
+- Compare full-frame and foreground-ROI-restricted mCherry diffuse/punctate scores for columns `05-07`.
