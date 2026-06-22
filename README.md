@@ -254,4 +254,12 @@ python scripts/run_mcherry_roi_pilot.py --columns 05 06 07
 
 See `docs/STAGE_QC_AND_ROI_WORKFLOW.md` for the current automated QC report, stage-prefilter output, ROI-restricted analysis, and caveats.
 
+To create small animated GIF examples from the registered pilot time series:
+
+```bash
+python scripts/make_mcherry_timeseries_videos.py --wells E05 F05 M07 J06
+```
+
+This writes local video-like outputs under `/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_timeseries_videos`. These generated files are not tracked by Git.
+
 See `docs/LOCAL_JUPYTER_GUIDE.md` for setup instructions.
