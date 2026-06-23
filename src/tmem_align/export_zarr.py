@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import zarr
 from ome_zarr.io import parse_url
 from ome_zarr.writer import write_image
 
@@ -24,8 +25,9 @@ def export_ome_zarr(
     output_zarr = Path(output_zarr)
     output_zarr.parent.mkdir(parents=True, exist_ok=True)
     store = parse_url(str(output_zarr), mode="w").store
+    group = zarr.group(store=store, overwrite=True)
     axes = axes or _guess_axes(image.ndim)
-    write_image(image=image, group=store, axes=axes, storage_options={"chunks": chunks} if chunks else None)
+    write_image(image=image, group=group, axes=axes, storage_options={"chunks": chunks} if chunks else None)
     return output_zarr
 
 

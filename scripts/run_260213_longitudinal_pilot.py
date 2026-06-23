@@ -1,0 +1,681 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import matplotlib
+
+matplotlib.use("Agg")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+import matplotlib.pyplot as plt
+import imageio.v2 as imageio
+import numpy as np
+import pandas as pd
+import tifffile as tif
+from scipy.ndimage import gaussian_filter
+from skimage.registration import phase_cross_correlation
+
+from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
+from tmem_align.register import apply_shift
+
+
+CONDITIONS = {
+    "E": "PLD3_mCherry_reporter_control",
+    "F": "PLD3_TMEM106B_mCherry_primary",
+    "I": "PLD3_mCherry_reporter_control",
+    "J": "PLD3_TMEM106B_mCherry_primary",
+    "M": "PLD3_mCherry_reporter_control",
+    "N": "PLD3_TMEM106B_mCherry_primary",
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run a tiny E/F mCherry longitudinal registration and measurement pilot."
+    )
+    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--config", type=Path, default=Path("configs/260213_Feb15recopy.yaml"))
+    parser.add_argument("--control-well", default="E05")
+    parser.add_argument("--experimental-well", default="F05")
+    parser.add_argument("--channels", nargs="+", default=["488", "561"])
+    parser.add_argument("--max-timepoints", type=int, default=3)
+    parser.add_argument("--max-sites", type=int, default=1)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    output = args.output.expanduser().resolve()
+    figures = output / "figures"
+    registered_dir = output / "registered_stacks"
+    figures.mkdir(parents=True, exist_ok=True)
+    registered_dir.mkdir(parents=True, exist_ok=True)
+
+    started = datetime.now().isoformat(timespec="seconds")
+    data_root = args.data_root.expanduser().resolve()
+    wells = [args.control_well.upper(), args.experimental_well.upper()]
+    selected = select_pilot_files(data_root, wells, max_timepoints=args.max_timepoints)
+    if not selected:
+        raise FileNotFoundError(f"No pilot files found under {data_root} for {wells}")
+
+    inventory = build_selected_inventory(selected)
+    inventory_path = output / (
+        "selected_pilot_files.csv" if (output / "dataset_inventory.csv").exists() else "dataset_inventory.csv"
+    )
+    inventory.to_csv(inventory_path, index=False)
+
+    if args.dry_run:
+        write_run_log(output, args, selected, started, extra=["Dry run: no pixels loaded."])
+        print(inventory.to_string(index=False))
+        print(f"Dry run wrote inventory: {inventory_path}")
+        return
+
+    all_qc: list[dict[str, Any]] = []
+    all_metrics: list[pd.DataFrame] = []
+    stacks: dict[str, np.ndarray] = {}
+    crops: dict[str, dict[str, int]] = {}
+
+    for well in wells:
+        loaded = [load_nd2_cyx(row["path"], args.max_sites, args.max_read_bytes) for row in selected[well]]
+        channel_names = loaded[0]["channel_names"]
+        alignment_index = choose_channel_index(channel_names, args.channels[0])
+        mcherry_index = choose_channel_index(channel_names, args.channels[1])
+        raw_stack = np.stack([item["array"] for item in loaded], axis=0)  # TCYX
+        registered, qc_rows, common_crop = register_stack(
+            raw_stack,
+            well=well,
+            rows=selected[well],
+            alignment_channel_index=alignment_index,
+            alignment_channel_label=channel_names[alignment_index],
+        )
+        common = crop_tcyx(registered, common_crop)
+        stacks[well] = common
+        crops[well] = common_crop
+        all_qc.extend(qc_rows)
+        tif.imwrite(
+            registered_dir / f"{well}_registered_common_overlap_tcyx.ome.tif",
+            common,
+            photometric="minisblack",
+            metadata={"axes": "TCYX"},
+            ome=True,
+        )
+        metadata_rows = [
+            {
+                "well": well,
+                "condition": condition_for_well(well),
+                "site_fov": "site0",
+                "timepoint_day": row["day"],
+                "file_name": row["path"].name,
+                "mcherry_channel": channel_names[mcherry_index],
+                "registration_channel": channel_names[alignment_index],
+            }
+            for row in selected[well]
+        ]
+        metrics = quantify_mcherry_timeseries(
+            common[:, mcherry_index],
+            mask_stack=common[:, alignment_index],
+            metadata_rows=metadata_rows,
+        )
+        all_metrics.append(metrics)
+
+    qc = pd.DataFrame(all_qc)
+    qc_path = output / "registration_qc.csv"
+    qc.to_csv(qc_path, index=False)
+
+    measurements = pd.concat(all_metrics, ignore_index=True)
+    measurements_path = output / "mcherry_measurements.csv"
+    measurements.to_csv(measurements_path, index=False)
+
+    summary = build_summary_stats(measurements, qc)
+    summary_path = output / "summary_stats.csv"
+    summary.to_csv(summary_path, index=False)
+
+    write_registration_figure(stacks, selected, figures / "registration_before_after.png")
+    write_mcherry_timeseries_figure(stacks, selected, figures / "aligned_timeseries_mcherry.png")
+    write_mcherry_timeseries_gifs(stacks, figures)
+    write_metric_figure(measurements, figures / "mcherry_metric_over_time.png")
+    write_pi_readme(output, data_root, args, inventory, qc, measurements, summary, selected, started)
+    write_methods(output, args, selected)
+    write_run_log(output, args, selected, started, extra=[f"Completed at {datetime.now().isoformat(timespec='seconds')}"])
+
+    print_terminal_summary(output, data_root, selected, qc, measurements)
+
+
+def select_pilot_files(
+    data_root: Path,
+    wells: list[str],
+    *,
+    max_timepoints: int,
+) -> dict[str, list[dict[str, Any]]]:
+    selected: dict[str, list[dict[str, Any]]] = {}
+    for well in wells:
+        candidates = []
+        for path in sorted(data_root.rglob(f"*Well{well}*.nd2")):
+            if "brightfield" in path.name.lower():
+                continue
+            day = infer_day(path.name)
+            if day is None:
+                continue
+            candidates.append({"well": well, "day": day, "path": path})
+        candidates.sort(key=lambda row: (row["day"], str(row["path"])))
+        selected[well] = candidates[:max_timepoints]
+    return selected
+
+
+def build_selected_inventory(selected: dict[str, list[dict[str, Any]]]) -> pd.DataFrame:
+    rows = []
+    for well, items in selected.items():
+        for item in items:
+            path = item["path"]
+            rows.append(
+                {
+                    "path": str(path),
+                    "filename": path.name,
+                    "extension": ".nd2",
+                    "file_size_bytes": path.stat().st_size,
+                    "modified_time": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+                    "inferred_well": well,
+                    "inferred_day_timepoint": item["day"],
+                    "inferred_channel": infer_channel_string(path.name),
+                    "inferred_site_fov_tile": infer_sequence(path.name),
+                    "parse_confidence": "high",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def load_nd2_cyx(path: Path, max_sites: int, max_read_bytes: int) -> dict[str, Any]:
+    import nd2  # type: ignore
+
+    with nd2.ND2File(path) as image:
+        data = image.to_dask()
+        axis_order = list(image.sizes.keys())
+        selection: list[Any] = []
+        remaining_axes: list[str] = []
+        for axis in axis_order:
+            if axis == "P" and max_sites == 1:
+                selection.append(0)
+            elif axis == "T":
+                selection.append(0)
+            else:
+                selection.append(slice(None))
+                remaining_axes.append(axis)
+        selected = data[tuple(selection)]
+        read_bytes = int(np.prod(selected.shape, dtype=np.int64)) * np.dtype(selected.dtype).itemsize
+        if read_bytes > max_read_bytes:
+            raise ValueError(f"{path} selected read is {read_bytes:,} bytes, above {max_read_bytes:,}")
+        arr = np.asarray(selected.compute())
+
+        channels = []
+        try:
+            for index, channel in enumerate(image.metadata.channels):
+                name = getattr(getattr(channel, "channel", channel), "name", None)
+                channels.append(str(name) if name else f"Channel{index}")
+        except Exception:
+            channels = infer_channel_string(path.name).split("|")
+
+    arr, axes = standardize_to_cyx(arr, "".join(remaining_axes))
+    if not channels or len(channels) != arr.shape[0]:
+        channels = infer_channel_string(path.name).split("|")
+    return {"array": arr, "axes": axes, "channel_names": channels}
+
+
+def standardize_to_cyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
+    image = np.squeeze(arr)
+    axes_list = [axis for axis, size in zip(axes, np.asarray(arr).shape, strict=False) if size != 1]
+    axes = "".join(axes_list)
+    if image.ndim == 2:
+        return image[np.newaxis, :, :], "CYX"
+    if axes == "CYX":
+        return image, "CYX"
+    if set("YX").issubset(axes):
+        if "Z" in axes:
+            z_axis = axes.index("Z")
+            image = image.max(axis=z_axis)
+            axes = axes.replace("Z", "")
+        if "C" not in axes:
+            image = image[np.newaxis, :, :]
+            axes = "CYX"
+        order = [axes.index(axis) for axis in "CYX"]
+        return np.transpose(image, order), "CYX"
+    raise ValueError(f"Cannot standardize shape {arr.shape} with axes {axes} to CYX")
+
+
+def register_stack(
+    stack: np.ndarray,
+    *,
+    well: str,
+    rows: list[dict[str, Any]],
+    alignment_channel_index: int,
+    alignment_channel_label: str,
+) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
+    reference = robust_registration_image(stack[0, alignment_channel_index])
+    registered = [stack[0]]
+    shifts = [(0.0, 0.0)]
+    qc_rows = [
+        {
+            "well": well,
+            "condition": condition_for_well(well),
+            "timepoint_day": rows[0]["day"],
+            "registration_channel": alignment_channel_label,
+            "estimated_y_shift": 0.0,
+            "estimated_x_shift": 0.0,
+            "pre_registration_correlation": 1.0,
+            "post_registration_correlation": 1.0,
+            "overlap_fraction": 1.0,
+            "registration_error": 0.0,
+            "qc_pass": True,
+            "qc_note": "reference_timepoint",
+        }
+    ]
+
+    for time_index in range(1, stack.shape[0]):
+        moving = robust_registration_image(stack[time_index, alignment_channel_index])
+        shift, error, _ = phase_cross_correlation(reference, moving, upsample_factor=10)
+        dy, dx = float(shift[0]), float(shift[1])
+        shifted_channel = apply_shift(moving, dy, dx)
+        registered.append(apply_shift(stack[time_index], dy, dx))
+        shifts.append((dy, dx))
+        overlap = overlap_fraction(stack.shape[-2:], (dy, dx))
+        qc_rows.append(
+            {
+                "well": well,
+                "condition": condition_for_well(well),
+                "timepoint_day": rows[time_index]["day"],
+                "registration_channel": alignment_channel_label,
+                "estimated_y_shift": dy,
+                "estimated_x_shift": dx,
+                "pre_registration_correlation": correlation(reference, moving),
+                "post_registration_correlation": correlation(reference, shifted_channel),
+                "overlap_fraction": overlap,
+                "registration_error": float(error),
+                "qc_pass": bool(overlap > 0.5 and abs(dy) < stack.shape[-2] * 0.5 and abs(dx) < stack.shape[-1] * 0.5),
+                "qc_note": "phase_cross_correlation_on_stable_channel",
+            }
+        )
+
+    registered_stack = np.stack(registered, axis=0)
+    return registered_stack, qc_rows, common_overlap_crop(stack.shape[-2:], shifts)
+
+
+def robust_registration_image(frame: np.ndarray) -> np.ndarray:
+    image = np.asarray(frame, dtype=np.float32)
+    lo, hi = np.percentile(image, [5, 99])
+    if hi <= lo:
+        return image
+    image = np.clip((image - lo) / (hi - lo), 0, 1)
+    return gaussian_filter(image, sigma=1.0)
+
+
+def common_overlap_crop(shape: tuple[int, int], shifts: list[tuple[float, float]]) -> dict[str, int]:
+    height, width = shape
+    top = max(int(np.ceil(max(dy, 0))) for dy, _ in shifts)
+    bottom = min(height + int(np.floor(min(dy, 0))) for dy, _ in shifts)
+    left = max(int(np.ceil(max(dx, 0))) for _, dx in shifts)
+    right = min(width + int(np.floor(min(dx, 0))) for _, dx in shifts)
+    if top >= bottom or left >= right:
+        return {"y_start": 0, "y_stop": height, "x_start": 0, "x_stop": width}
+    return {"y_start": top, "y_stop": bottom, "x_start": left, "x_stop": right}
+
+
+def crop_tcyx(stack: np.ndarray, crop: dict[str, int]) -> np.ndarray:
+    return stack[:, :, crop["y_start"] : crop["y_stop"], crop["x_start"] : crop["x_stop"]]
+
+
+def build_summary_stats(measurements: pd.DataFrame, qc: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for (well, condition), df in measurements.groupby(["well", "condition"], sort=True):
+        ordered = df.sort_values("timepoint_day")
+        days = ordered["timepoint_day"].to_numpy(dtype=float)
+        ratios = ordered["diffuse_to_punctate_ratio"].to_numpy(dtype=float)
+        slope = float(np.polyfit(days, ratios, 1)[0]) if len(days) >= 2 else np.nan
+        rows.append(
+            {
+                "well": well,
+                "condition": condition,
+                "n_timepoints": len(ordered),
+                "first_day": int(days[0]),
+                "last_day": int(days[-1]),
+                "first_diffuse_to_punctate_ratio": float(ratios[0]),
+                "last_diffuse_to_punctate_ratio": float(ratios[-1]),
+                "diffuse_to_punctate_slope_per_day": slope,
+                "mean_puncta_count": float(ordered["puncta_count"].mean()),
+                "registration_qc_pass_count": int(qc[qc["well"] == well]["qc_pass"].sum()),
+                "registration_qc_total_count": int((qc["well"] == well).sum()),
+                "statistics_note": "tiny pilot; not enough independent replicates for inferential statistics",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_registration_figure(stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path) -> None:
+    fig, axes = plt.subplots(len(stacks), 3, figsize=(10, 3.5 * len(stacks)), constrained_layout=True)
+    axes = np.atleast_2d(axes)
+    for row_index, (well, stack) in enumerate(stacks.items()):
+        ref = robust_registration_image(stack[0, 2 if stack.shape[1] > 2 else 0])
+        last = robust_registration_image(stack[-1, 2 if stack.shape[1] > 2 else 0])
+        overlay = np.zeros((*ref.shape, 3), dtype=np.float32)
+        overlay[..., 0] = ref
+        overlay[..., 1] = last
+        for col, image, title in [
+            (0, ref, f"{well} Day {selected[well][0]['day']} 488"),
+            (1, last, f"{well} Day {selected[well][-1]['day']} aligned 488"),
+            (2, overlay, f"{well} red=ref green=aligned"),
+        ]:
+            axes[row_index, col].imshow(image, cmap="gray" if col < 2 else None)
+            axes[row_index, col].set_title(title)
+            axes[row_index, col].set_axis_off()
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+
+
+def write_mcherry_timeseries_figure(stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path) -> None:
+    ncols = max(stack.shape[0] for stack in stacks.values())
+    fig, axes = plt.subplots(len(stacks), ncols, figsize=(3.2 * ncols, 3.4 * len(stacks)), constrained_layout=True)
+    axes = np.atleast_2d(axes)
+    for row_index, (well, stack) in enumerate(stacks.items()):
+        mcherry_index = 1 if stack.shape[1] > 1 else 0
+        vmax = np.percentile(stack[:, mcherry_index], 99.5)
+        for time_index in range(ncols):
+            ax = axes[row_index, time_index]
+            if time_index < stack.shape[0]:
+                ax.imshow(stack[time_index, mcherry_index], cmap="magma", vmax=vmax)
+                ax.set_title(f"{well} Day {selected[well][time_index]['day']}")
+            ax.set_axis_off()
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+
+
+def write_mcherry_timeseries_gifs(stacks: dict[str, np.ndarray], figures: Path) -> None:
+    for well, stack in stacks.items():
+        mcherry_index = 1 if stack.shape[1] > 1 else 0
+        vmax = float(np.percentile(stack[:, mcherry_index], 99.5))
+        frames = []
+        for time_index in range(stack.shape[0]):
+            frame = stack[time_index, mcherry_index].astype(np.float32)
+            normalized = np.clip(frame / max(vmax, 1.0), 0, 1)
+            rgb = plt.get_cmap("magma")(normalized)[..., :3]
+            frames.append((rgb * 255).astype(np.uint8))
+        imageio.mimsave(figures / f"{well}_aligned_mcherry_timeseries.gif", frames, duration=900, loop=0)
+
+
+def write_metric_figure(measurements: pd.DataFrame, path: Path) -> None:
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+    specs = [
+        ("diffuse_to_punctate_ratio", "Diffuse / punctate"),
+        ("puncta_count", "Puncta count"),
+        ("diffuse_mcherry_mean_intensity", "Diffuse mean"),
+    ]
+    colors = {"E05": "#2f6f9f", "F05": "#b84a39"}
+    for ax, (column, title) in zip(axes, specs, strict=True):
+        for well, df in measurements.groupby("well", sort=True):
+            ax.plot(df["timepoint_day"], df[column], marker="o", linewidth=2, label=well, color=colors.get(well))
+        ax.set_title(title)
+        ax.set_xlabel("Day")
+    axes[-1].legend(title="Well")
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+
+
+def write_pi_readme(
+    output: Path,
+    data_root: Path,
+    args: argparse.Namespace,
+    inventory: pd.DataFrame,
+    qc: pd.DataFrame,
+    measurements: pd.DataFrame,
+    summary: pd.DataFrame,
+    selected: dict[str, list[dict[str, Any]]],
+    started: str,
+) -> None:
+    exact_feb15_missing = "Feb15recopy" not in data_root.name
+    trend_text = summarize_trend(summary)
+    content = f"""# 260213 E05/F05 Longitudinal Pilot
+
+Run started: {started}
+
+## What Was Analyzed
+
+This is a tiny real-data pilot from `{data_root}`. The requested folder prefix was
+`260213_Feb15recopy`; the local folder found and used was `{data_root.name}`.
+{"This naming mismatch should be verified with the acquisition/copy notes before presentation." if exact_feb15_missing else ""}
+
+Wells analyzed:
+- `{args.control_well.upper()}`: PLD3 + mCherry reporter control.
+- `{args.experimental_well.upper()}`: PLD3 + TMEM106B + mCherry primary experimental well.
+
+Timepoints: {', '.join(str(row['day']) for row in selected[args.control_well.upper()])}
+
+Channels: registration used 488, measurement used 561/mCherry. The mCherry channel was not used
+as the primary registration reference because mCherry redistribution is the phenotype being
+screened.
+
+## What The Aligner Did
+
+For each well, the script loaded the first {args.max_timepoints} fluorescence ND2 timepoints,
+estimated X/Y drift with phase cross-correlation on the stable 488 channel, applied the same
+transform to the 561/mCherry channel, cropped to common overlap, and measured mCherry punctate
+versus diffuse signal inside a foreground mask.
+
+## Outputs
+
+- `dataset_inventory.csv`: dataset-wide inventory, when created before this pilot command.
+- `selected_pilot_files.csv`: the six files loaded for this E05/F05 pilot when a full
+  `dataset_inventory.csv` was already present.
+- `registration_qc.csv`: shifts, correlations, overlap, and pass/fail flags.
+- `mcherry_measurements.csv`: per-well/timepoint mCherry measurements.
+- `summary_stats.csv`: pilot slopes and QC counts.
+- `figures/registration_before_after.png`: 488-channel registration QC.
+- `figures/aligned_timeseries_mcherry.png`: aligned mCherry time series.
+- `figures/*_aligned_mcherry_timeseries.gif`: animated aligned mCherry examples.
+- `figures/mcherry_metric_over_time.png`: mCherry metrics over time.
+- `registered_stacks/`: small registered OME-TIFF stacks for review.
+
+## Pilot Result
+
+{trend_text}
+
+This is real local microscopy data, but it is still a small screening pilot. The metric is a
+longitudinal punctate-to-diffuse reporter redistribution score. It is not proof of lysosomal
+rupture by itself.
+
+## How This Helps The TMEM106B Paper
+
+This workflow converts raw longitudinal imaging into same-well quantitative trajectories. It can
+test whether PLD3+TMEM106B+mCherry shows progressive punctate-to-diffuse reporter behavior
+relative to mCherry reporter controls, giving a light-microscopy bridge to the paper's model of
+lysosomal TMEM106B fibril accumulation and rupture-like phenotypes. It also helps prioritize
+wells, timepoints, and neurons for cryo-CLEM, immunostaining, and lysosome assays.
+
+## Limitations And Next Steps
+
+- Add orthogonal rupture markers: Galectin-3/Galectin-8 recruitment, LAMP1/LAMP2 morphology,
+  LysoTracker loss, p62/LC3, or LLOMe positive control.
+- Expand to more wells, sites, cells, and replicate pairs before inferential statistics.
+- Validate segmentation/tracking manually for same-neuron claims.
+- Tighten registration QC thresholds after reviewing failed or large-shift alignments.
+- The current pilot has {int(qc['qc_pass'].sum())}/{len(qc)} registration QC rows passing.
+- Not enough independent replicates for mixed-effects or inferential statistics.
+"""
+    (output / "PI_README.md").write_text(content, encoding="utf-8")
+
+
+def write_methods(output: Path, args: argparse.Namespace, selected: dict[str, list[dict[str, Any]]]) -> None:
+    content = f"""# Methods Draft
+
+## Dataset Organization
+
+Raw ND2 files were read in place from the 260213 recopy dataset folder and were not modified.
+The pilot selected wells {args.control_well.upper()} and {args.experimental_well.upper()} and the
+earliest available fluorescence timepoints: {', '.join(str(row['day']) for row in selected[args.control_well.upper()])}.
+
+## Image Loading
+
+ND2 files were opened lazily with the Python `nd2` package. For this pilot, the first site/position
+was selected when a position axis was present, and arrays were standardized to `CYX`. Supported
+axis patterns include `YX`, `CYX`, `ZCYX`, and common time/position variants after selecting a
+single time/position and max-projecting Z when present.
+
+## Channel Selection
+
+The 488 channel was used for registration as a stable non-phenotype channel. The 561 channel was
+used for mCherry phenotype measurement. Emergency mCherry-based registration was not used in this
+pilot.
+
+## Well/Day Registration
+
+The earliest selected day was used as the reference. Later days were robustly normalized by
+background percentile clipping and light Gaussian smoothing, then registered to the reference with
+`skimage.registration.phase_cross_correlation` using subpixel upsampling. The resulting X/Y shift
+was applied to all channels with linear interpolation, and stacks were cropped to their common
+overlap.
+
+## Neuron/ROI Measurement
+
+This pilot uses a whole-field foreground mask rather than validated single-neuron tracking. The
+foreground mask is derived from the aligned 488 channel and used to restrict 561/mCherry
+measurement.
+
+## Puncta/Diffuse mCherry Quantification
+
+mCherry images were background-subtracted with a low percentile estimate. Puncta candidates were
+detected with a Difference-of-Gaussian image and robust median/MAD plus high-percentile threshold.
+Connected components were size-filtered. Diffuse intensity was measured as foreground signal
+outside puncta. The reported rupture-like score is diffuse integrated intensity divided by
+punctate integrated intensity plus epsilon.
+
+## QC And Exclusion Criteria
+
+Registration QC includes estimated shifts, pre/post registration correlation, overlap fraction,
+registration error, and a pilot pass/fail flag. Alignments should be manually reviewed before
+biological interpretation.
+
+## Statistical Analysis
+
+For this tiny pilot, per-timepoint values and per-well slopes are reported. There are not enough
+independent wells/sites/cells for inferential statistics or mixed-effects modeling.
+
+## Software Versions
+
+Core packages: numpy, pandas, scipy, scikit-image, tifffile, matplotlib, and optional nd2. Exact
+versions should be captured from the analysis environment for a manuscript supplement.
+"""
+    (output / "METHODS_DRAFT.md").write_text(content, encoding="utf-8")
+
+
+def write_run_log(output: Path, args: argparse.Namespace, selected: dict[str, list[dict[str, Any]]], started: str, extra: list[str]) -> None:
+    lines = [
+        "# Codex Run Log",
+        "",
+        f"Started: {started}",
+        f"Data root: {args.data_root}",
+        f"Config requested: {args.config}",
+        f"Control well: {args.control_well}",
+        f"Experimental well: {args.experimental_well}",
+        f"Channels requested: {args.channels}",
+        f"Max timepoints: {args.max_timepoints}",
+        f"Max sites: {args.max_sites}",
+        "",
+        "Selected files:",
+    ]
+    for well, items in selected.items():
+        for row in items:
+            lines.append(f"- {well} Day {row['day']}: {row['path']}")
+    lines.extend(["", *extra])
+    (output / "codex_run_log.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def print_terminal_summary(
+    output: Path,
+    data_root: Path,
+    selected: dict[str, list[dict[str, Any]]],
+    qc: pd.DataFrame,
+    measurements: pd.DataFrame,
+) -> None:
+    print(f"Output folder: {output}")
+    print(f"Dataset path used: {data_root}")
+    print("Wells used: " + ", ".join(selected))
+    days = sorted({row["day"] for rows in selected.values() for row in rows})
+    print("Timepoints used: " + ", ".join(map(str, days)))
+    print("Channels used: 488 registration, 561 mCherry measurement")
+    print(f"Registration QC pass/total: {int(qc['qc_pass'].sum())}/{len(qc)}")
+    for well, df in measurements.groupby("well", sort=True):
+        ordered = df.sort_values("timepoint_day")
+        trend = ordered["diffuse_to_punctate_ratio"].iloc[-1] - ordered["diffuse_to_punctate_ratio"].iloc[0]
+        print(f"{well} diffuse/punctate change: {trend:.4g}")
+    print("Open PI_README.md and figures/ for the PI-ready summary.")
+
+
+def summarize_trend(summary: pd.DataFrame) -> str:
+    if summary.empty:
+        return "No mCherry measurements were produced."
+    lines = []
+    for _, row in summary.iterrows():
+        direction = "increased" if row["diffuse_to_punctate_slope_per_day"] > 0 else "decreased"
+        lines.append(
+            f"{row['well']} ({row['condition']}) {direction} from "
+            f"{row['first_diffuse_to_punctate_ratio']:.4g} to {row['last_diffuse_to_punctate_ratio']:.4g} "
+            f"(slope {row['diffuse_to_punctate_slope_per_day']:.4g} per day)."
+        )
+    return " ".join(lines)
+
+
+def choose_channel_index(channel_names: list[str], target: str) -> int:
+    target_norm = re.sub(r"\D", "", target)
+    for index, name in enumerate(channel_names):
+        if target_norm and target_norm in re.sub(r"\D", "", name):
+            return index
+    if target_norm == "561" and len(channel_names) > 1:
+        return 1
+    if target_norm == "488" and len(channel_names) > 2:
+        return 2
+    return 0
+
+
+def infer_day(name: str) -> int | None:
+    match = re.search(r"day\s*[_-]?(\d+)", name, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def infer_channel_string(name: str) -> str:
+    match = re.search(r"Channel(.+?)(?:_Seq|\.nd2)", name, re.IGNORECASE)
+    return match.group(1).replace(",", "|").strip() if match else ""
+
+
+def infer_sequence(name: str) -> str:
+    match = re.search(r"Seq(\d+)", name, re.IGNORECASE)
+    return f"Seq{match.group(1)}" if match else ""
+
+
+def condition_for_well(well: str) -> str:
+    return CONDITIONS.get(well[0].upper(), "unknown")
+
+
+def overlap_fraction(shape: tuple[int, int], shift: tuple[float, float]) -> float:
+    height, width = shape
+    dy, dx = shift
+    overlap_h = max(0.0, height - abs(dy))
+    overlap_w = max(0.0, width - abs(dx))
+    return float((overlap_h * overlap_w) / (height * width))
+
+
+def correlation(a: np.ndarray, b: np.ndarray) -> float:
+    av = np.asarray(a, dtype=np.float32).ravel()
+    bv = np.asarray(b, dtype=np.float32).ravel()
+    if av.std() == 0 or bv.std() == 0:
+        return 0.0
+    return float(np.corrcoef(av, bv)[0, 1])
+
+
+if __name__ == "__main__":
+    main()
