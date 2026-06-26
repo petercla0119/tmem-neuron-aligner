@@ -13,7 +13,7 @@ Each well is registered to its own Day 8 reference. Wells are compared only afte
 Generated outputs are intentionally outside Git:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/e05_f05_i05_j05_m05_n05_longitudinal_comparison/
+LOCAL_PROCESSED_OUTPUT/pilot/e05_f05_i05_j05_m05_n05_longitudinal_comparison/
   E05_F05_I05_J05_M05_N05_days_day8_day25_day39_comparison_metrics.csv
   E05_F05_I05_J05_M05_N05_days_day8_day25_day39_comparison_summary.png
 ```
@@ -21,8 +21,8 @@ Generated outputs are intentionally outside Git:
 Each well also has its own local stack outputs under:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_interim/pilot/{well}_longitudinal/
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/{well}_longitudinal/
+LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/{well}_longitudinal/
+LOCAL_PROCESSED_OUTPUT/pilot/{well}_longitudinal/
 ```
 
 ## Preliminary Pattern

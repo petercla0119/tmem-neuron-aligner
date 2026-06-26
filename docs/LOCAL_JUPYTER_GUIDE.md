@@ -114,4 +114,4 @@ This writes a six-well comparison for E05/F05, I05/J05, and M05/N05. See `docs/R
 python scripts/make_registration_qc_montages.py
 ```
 
-This writes local PNG montages and `registration_qc_shift_summary.csv` under `/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc`. Review the 488nm alignment-channel montages and RGB day overlays before scaling to more wells. See `docs/REGISTRATION_QC_MONTAGES.md`.
+This writes local PNG montages and `registration_qc_shift_summary.csv` under `LOCAL_PROCESSED_OUTPUT/pilot/registration_qc`. Review the 488nm alignment-channel montages and RGB day overlays before scaling to more wells. See `docs/REGISTRATION_QC_MONTAGES.md`.

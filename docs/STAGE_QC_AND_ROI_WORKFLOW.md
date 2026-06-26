@@ -21,7 +21,7 @@ python scripts/build_mcherry_stage_prefilter.py
 Local outputs:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/stage_prefilter/
+LOCAL_PROCESSED_OUTPUT/pilot/stage_prefilter/
   mcherry_stage_prefilter.csv
   mcherry_stage_prefilter_summary.csv
 ```
@@ -39,7 +39,7 @@ python scripts/build_mcherry_qc_report.py
 Local outputs:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_qc_report/
+LOCAL_PROCESSED_OUTPUT/pilot/mcherry_qc_report/
   mcherry_longitudinal_qc_report.csv
   mcherry_longitudinal_qc_report.md
 ```
@@ -74,7 +74,7 @@ This reads existing registered common-overlap pilot stacks one at a time. It doe
 Local outputs:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_roi_quantification/
+LOCAL_PROCESSED_OUTPUT/pilot/mcherry_roi_quantification/
   mcherry_full_frame_vs_roi_metrics.csv
   mcherry_full_frame_vs_roi_condition_summary.csv
   mcherry_full_frame_vs_roi_condition_summary_qc_passing.csv

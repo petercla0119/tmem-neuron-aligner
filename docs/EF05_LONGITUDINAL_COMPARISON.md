@@ -12,7 +12,7 @@ Both wells use Day 8, Day 25, and Day 39 fluorescence ND2 files. Each well is al
 Generated comparison outputs are intentionally outside Git:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/ef05_longitudinal_comparison/
+LOCAL_PROCESSED_OUTPUT/pilot/ef05_longitudinal_comparison/
   E05_F05_days_day8_day25_day39_comparison_metrics.csv
   E05_F05_days_day8_day25_day39_comparison_summary.png
 ```

@@ -14,7 +14,7 @@ python scripts/make_registration_qc_montages.py
 ## Local Outputs
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc/
+LOCAL_PROCESSED_OUTPUT/pilot/registration_qc/
   registration_qc_shift_summary.csv
   E05_day8_day25_day39_registered_alignment_ch2_montage.png
   E05_day8_day25_day39_registered_mcherry_ch1_montage.png
