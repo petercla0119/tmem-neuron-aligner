@@ -25,7 +25,7 @@ This is still a pilot. It is not a full-plate analysis and not proof of lysosoma
 Generated figures and tables are local outputs outside Git:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/
+LOCAL_PROCESSED_OUTPUT/pilot/mcherry_graphical_analysis/
   combined_mcherry_metrics.csv
   condition_day_summary.csv
   condition_day_summary_qc_passing.csv
@@ -44,13 +44,13 @@ Generated figures and tables are local outputs outside Git:
 The most useful starting figure is:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_graphical_analysis/mcherry_condition_mean_sem_qc_passing.png
+LOCAL_PROCESSED_OUTPUT/pilot/mcherry_graphical_analysis/mcherry_condition_mean_sem_qc_passing.png
 ```
 
 The most useful lab-review QC report is:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/mcherry_qc_report/mcherry_longitudinal_qc_report.md
+LOCAL_PROCESSED_OUTPUT/pilot/mcherry_qc_report/mcherry_longitudinal_qc_report.md
 ```
 
 ## Current condition means
@@ -86,7 +86,7 @@ The QC-filtered Day 25 primary group currently has only 3 passing wells, so it s
 The filename/size-only manifest is:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/dataset_manifest/
+LOCAL_PROCESSED_OUTPUT/pilot/dataset_manifest/
   nd2_filename_size_manifest.csv
   mcherry_applicable_nd2_manifest.csv
   mcherry_applicable_summary.csv
@@ -104,19 +104,19 @@ This is still too much to run as a casual next step. Scale by selected columns a
 Registration QC for column 05 is under:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc/
+LOCAL_PROCESSED_OUTPUT/pilot/registration_qc/
 ```
 
 Registration QC for column 06 is under:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc_column06/
+LOCAL_PROCESSED_OUTPUT/pilot/registration_qc_column06/
 ```
 
 Registration QC for column 07 is under:
 
 ```text
-/Users/makennarodriguez/Documents/TMEM106B_processed/pilot/registration_qc_column07/
+LOCAL_PROCESSED_OUTPUT/pilot/registration_qc_column07/
 ```
 
 Large-shift flags occurred in all three processed columns. The graphical analysis now writes QC-passing summaries that exclude flagged well/day observations. Large shifts may represent stage-position differences, FOV mismatch, or registration ambiguity, and can bias whole-frame quantification even when common-overlap cropping is used.
