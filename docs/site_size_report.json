@@ -1,10 +1,10 @@
 {
   "schema": "tmem_github_pages_dashboard_report_v1",
   "site_root": "docs",
-  "total_bytes": 80467262,
-  "total_mib": 76.74,
-  "file_count": 2070,
-  "copied_file_count": 2051,
+  "total_bytes": 81228090,
+  "total_mib": 77.47,
+  "file_count": 2076,
+  "copied_file_count": 2055,
   "skipped": [],
   "warning_size_mib": 350.0,
   "size_warning": false,
@@ -22,6 +22,10 @@
     {
       "path": "roi_review_unreviewed.html",
       "bytes": 507410
+    },
+    {
+      "path": "summaries/overlap_only_summary.json",
+      "bytes": 235099
     },
     {
       "path": "roi_review_saturation_clipping_warnings.html",
@@ -106,10 +110,6 @@
     {
       "path": "previews/I10/I10_day12_preview.png",
       "bytes": 123462
-    },
-    {
-      "path": "roi_previews/N10/N10_ROI001.png",
-      "bytes": 123365
     }
   ]
 }
