@@ -17,6 +17,7 @@ DEFAULT_DASHBOARD_ROOT = Path("~/Documents/TMEM106B_processed/dashboard")
 DEFAULT_SUMMARY_ROOT = Path(
     "~/Documents/TMEM106B_processed/full_mcherry_valid_defg_pass5/review_summaries"
 )
+DEFAULT_OVERLAP_SUMMARY_ROOT = Path("~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/overlap_only_audit")
 DEFAULT_SITE_ROOT = Path("docs")
 FORBIDDEN_SUFFIXES = {
     ".nd2",
@@ -42,6 +43,8 @@ GENERATED_PATHS = [
     "roi_review_confirmed_same_neuron.html",
     "roi_review_poor_registration_or_exclude.html",
     "roi_review_saturation_clipping_warnings.html",
+    "overlap_only_qc_summary.html",
+    "overlap_only_pi_summary.html",
     "queue_index.json",
     "site_size_report.txt",
     "site_size_report.json",
@@ -57,6 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build a sanitized GitHub Pages dashboard in docs/.")
     parser.add_argument("--dashboard-root", type=Path, default=DEFAULT_DASHBOARD_ROOT)
     parser.add_argument("--summary-root", type=Path, default=DEFAULT_SUMMARY_ROOT)
+    parser.add_argument("--overlap-summary-root", type=Path, default=DEFAULT_OVERLAP_SUMMARY_ROOT)
     parser.add_argument("--site-root", type=Path, default=DEFAULT_SITE_ROOT)
     parser.add_argument("--max-image-width", type=int, default=900)
     parser.add_argument("--warn-size-mb", type=float, default=350.0)
@@ -68,12 +72,15 @@ def main() -> None:
     args = parse_args()
     dashboard_root = args.dashboard_root.expanduser().resolve()
     summary_root = args.summary_root.expanduser().resolve()
+    overlap_summary_root = args.overlap_summary_root.expanduser().resolve()
     site_root = args.site_root.resolve()
 
     if not dashboard_root.exists():
         raise FileNotFoundError(dashboard_root)
     if not summary_root.exists():
         raise FileNotFoundError(summary_root)
+    if not overlap_summary_root.exists():
+        raise FileNotFoundError(overlap_summary_root)
 
     site_root.mkdir(parents=True, exist_ok=True)
     clean_generated_site(site_root)
@@ -95,6 +102,13 @@ def main() -> None:
     for source in iter_files(summary_root):
         if source.suffix.lower() not in {".csv", ".json", ".html"}:
             skipped.append(f"summary:{source.name}")
+            continue
+        target = summaries_target / source.name
+        copy_web_file(source, target, max_image_width=args.max_image_width)
+        copied.append(file_record(target, site_root))
+    for source in iter_files(overlap_summary_root):
+        if source.suffix.lower() not in {".csv", ".json", ".html"}:
+            skipped.append(f"overlap_summary:{source.name}")
             continue
         target = summaries_target / source.name
         copy_web_file(source, target, max_image_width=args.max_image_width)

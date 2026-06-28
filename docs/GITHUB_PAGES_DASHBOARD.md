@@ -10,6 +10,7 @@ The GitHub Pages build includes browser-safe dashboard files:
 - well pages under `wells/`
 - ROI pages under `rois/`
 - ROI review queue pages
+- overlap-only QC summary page
 - first-pass summary pages
 - optimized preview PNGs under `previews/` and `roi_previews/`
 - sanitized summary CSV/JSON/HTML files under `summaries/`
@@ -63,6 +64,12 @@ The default review summary input is:
 ~/Documents/TMEM106B_processed/full_mcherry_valid_defg_pass5/review_summaries
 ```
 
+The default overlap-only audit input is:
+
+```text
+~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/overlap_only_audit
+```
+
 The default output is:
 
 ```text
@@ -76,8 +83,9 @@ The build script:
 3. Optimizes preview PNGs.
 4. Sanitizes local absolute paths.
 5. Copies summary CSV/JSON/HTML files.
-6. Writes `docs/site_size_report.txt` and `docs/site_size_report.json`.
-7. Reports the largest files and any forbidden file types.
+6. Copies overlap-only QC summary CSV/JSON files.
+7. Writes `docs/site_size_report.txt` and `docs/site_size_report.json`.
+8. Reports the largest files and any forbidden file types.
 
 ## Update After Manual ROI Review
 
@@ -131,6 +139,7 @@ Recommended review pages:
 - `roi_review_poor_registration_or_exclude.html`
 - `roi_review_saturation_clipping_warnings.html`
 - `roi_first_pass_metric_summary.html`
+- `overlap_only_qc_summary.html`
 
 All ROI metrics remain preliminary until ROI identity has been manually reviewed.
 
