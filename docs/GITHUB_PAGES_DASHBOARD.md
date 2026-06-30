@@ -55,19 +55,19 @@ python scripts/build_github_pages_dashboard.py
 The default input dashboard is:
 
 ```text
-~/Documents/TMEM106B_processed/dashboard
+LOCAL_PROCESSED_OUTPUT/dashboard
 ```
 
 The default review summary input is:
 
 ```text
-~/Documents/TMEM106B_processed/full_mcherry_valid_defg_pass5/review_summaries
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_defg_pass5/review_summaries
 ```
 
 The default overlap-only audit input is:
 
 ```text
-~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/overlap_only_audit
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_queue_abc/overlap_only_audit
 ```
 
 The default output is:
@@ -92,7 +92,7 @@ The build script:
 First edit the working review CSV:
 
 ```text
-~/Documents/TMEM106B_processed/full_mcherry_valid_defg_pass5/review_summaries/full_mcherry_valid_pass5_roi_identity_review_working.csv
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_defg_pass5/review_summaries/full_mcherry_valid_pass5_roi_identity_review_working.csv
 ```
 
 Then rebuild local review summaries:

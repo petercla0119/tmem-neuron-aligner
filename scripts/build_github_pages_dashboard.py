@@ -171,9 +171,12 @@ def sanitize_text(text: str) -> str:
         f"{home}/Documents/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1/": "LOCAL_RAW_DATA/",
         f"{home}/Documents/tmem_neuron_aligner/": "LOCAL_REPO/",
         f"{home}/": "LOCAL_USER_HOME/",
+        "~/Documents/TMEM106B_processed/": "LOCAL_PROCESSED_OUTPUT/",
+        "~/Documents/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1/": "LOCAL_RAW_DATA/",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
+        text = text.replace(old.replace("/", "\\/"), new)
     text = re.sub(
         r"LOCAL_PROCESSED_OUTPUT/[^\s<>\"]+\.(?:ome\.tif|ome\.tiff|tif|tiff|zarr|mp4|gif)",
         "Large microscopy file stored locally/shared drive",

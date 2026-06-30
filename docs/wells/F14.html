@@ -40,6 +40,166 @@
           <p><strong>usable but review first</strong></p>
         </header>
         <main>
+
+<!-- WELL_VIEWER_SECTION_START -->
+<section class="well-viewer">
+  <style>
+    .well-viewer .time-series-viewer { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }
+    .well-viewer .day-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .well-viewer .day-controls input { position: absolute; opacity: 0; pointer-events: none; }
+    .well-viewer .day-controls label { display: inline-block; padding: 7px 10px; border: 1px solid #bcc6d4; border-radius: 6px; background: #f7f8fa; cursor: pointer; font-size: 13px; }
+    .well-viewer .day-controls input:checked + label { background: #22577a; color: white; border-color: #22577a; }
+    .well-viewer .time-series-frame { display: grid; place-items: center; background: #111; border-radius: 8px; min-height: 320px; overflow: hidden; }
+    .well-viewer .time-series-frame img { display: none; width: 100%; max-height: 720px; object-fit: contain; margin: 0; border: 0; background: #111; }
+    .well-viewer .time-series-montage { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
+    .well-viewer .time-series-montage figure { margin: 0; }
+    .well-viewer .roi-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+    .well-viewer .roi-viewer-card { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }
+    .well-viewer .roi-viewer-card.has-warning { border-left: 6px solid #b7791f; }
+    .well-viewer .roi-card-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .well-viewer .roi-card-header h3 { margin: 0; font-size: 22px; }
+    .well-viewer .roi-viewer-card img { width: 100%; height: auto; border: 1px solid #edf0f4; background: #111; }
+    .well-viewer .roi-viewer-card dl { grid-template-columns: 125px 1fr; font-size: 13px; padding: 12px; }
+    .button-link { display: inline-block; padding: 6px 9px; border: 1px solid #22577a; border-radius: 6px; text-decoration: none; }
+  </style>
+  <h2>Well Summary</h2>
+  <dl>
+    <dt>Well</dt><dd>F14</dd>
+    <dt>Condition</dt><dd>PLD3_TMEM106B_mCherry_primary</dd>
+    <dt>Days included</dt><dd>8|12|16|20|25|29|32|36|39</dd>
+    <dt>Included pass days</dt><dd>8, 12, 20, 29, 32</dd>
+    <dt>Review-only days</dt><dd>16, 36, 39</dd>
+    <dt>Excluded days</dt><dd>25</dd>
+    <dt>Overlap retained</dt><dd>32.2% (1718 x 1540 px from 2868 x 2868 px)</dd>
+    <dt>QC status</dt><dd>review_low_overlap</dd>
+    <dt>Warning labels</dt><dd>low_overlap_retained</dd>
+    <dt>Recommended use</dt><dd>review_only</dd>
+  </dl>
+  <h2>Stacked Well Time-Series Viewer</h2>
+  <p><strong>Overlap-only/common-overlap time-series preview — preferred for analysis.</strong> Use the day buttons to switch the aligned day preview in the same frame. Full registered context is retained separately and may include edge artifacts.</p>
+  
+    <div class="time-series-viewer">
+      <style>#viewer-F14-day-8:checked ~ .time-series-frame .day-8 { display: block; }
+#viewer-F14-day-12:checked ~ .time-series-frame .day-12 { display: block; }
+#viewer-F14-day-16:checked ~ .time-series-frame .day-16 { display: block; }
+#viewer-F14-day-20:checked ~ .time-series-frame .day-20 { display: block; }
+#viewer-F14-day-25:checked ~ .time-series-frame .day-25 { display: block; }
+#viewer-F14-day-29:checked ~ .time-series-frame .day-29 { display: block; }
+#viewer-F14-day-32:checked ~ .time-series-frame .day-32 { display: block; }
+#viewer-F14-day-36:checked ~ .time-series-frame .day-36 { display: block; }
+#viewer-F14-day-39:checked ~ .time-series-frame .day-39 { display: block; }</style>
+      <div class="day-controls"><input type="radio" name="viewer-F14" id="viewer-F14-day-8" checked /><label for="viewer-F14-day-8">Day 8</label><input type="radio" name="viewer-F14" id="viewer-F14-day-12" /><label for="viewer-F14-day-12">Day 12</label><input type="radio" name="viewer-F14" id="viewer-F14-day-16" /><label for="viewer-F14-day-16">Day 16</label><input type="radio" name="viewer-F14" id="viewer-F14-day-20" /><label for="viewer-F14-day-20">Day 20</label><input type="radio" name="viewer-F14" id="viewer-F14-day-25" /><label for="viewer-F14-day-25">Day 25</label><input type="radio" name="viewer-F14" id="viewer-F14-day-29" /><label for="viewer-F14-day-29">Day 29</label><input type="radio" name="viewer-F14" id="viewer-F14-day-32" /><label for="viewer-F14-day-32">Day 32</label><input type="radio" name="viewer-F14" id="viewer-F14-day-36" /><label for="viewer-F14-day-36">Day 36</label><input type="radio" name="viewer-F14" id="viewer-F14-day-39" /><label for="viewer-F14-day-39">Day 39</label></div>
+      <div class="time-series-frame"><img class="day-frame day-8" src="../previews/F14/F14_day8_preview.png" alt="F14 day 8 overlap-only preview" /><img class="day-frame day-12" src="../previews/F14/F14_day12_preview.png" alt="F14 day 12 overlap-only preview" /><img class="day-frame day-16" src="../previews/F14/F14_day16_preview.png" alt="F14 day 16 overlap-only preview" /><img class="day-frame day-20" src="../previews/F14/F14_day20_preview.png" alt="F14 day 20 overlap-only preview" /><img class="day-frame day-25" src="../previews/F14/F14_day25_preview.png" alt="F14 day 25 overlap-only preview" /><img class="day-frame day-29" src="../previews/F14/F14_day29_preview.png" alt="F14 day 29 overlap-only preview" /><img class="day-frame day-32" src="../previews/F14/F14_day32_preview.png" alt="F14 day 32 overlap-only preview" /><img class="day-frame day-36" src="../previews/F14/F14_day36_preview.png" alt="F14 day 36 overlap-only preview" /><img class="day-frame day-39" src="../previews/F14/F14_day39_preview.png" alt="F14 day 39 overlap-only preview" /></div>
+      <details>
+        <summary>Show all days as montage</summary>
+        <div class="time-series-montage"><figure><img src="../previews/F14/F14_day8_preview.png" alt="F14 day 8" /><figcaption>Day 8</figcaption></figure><figure><img src="../previews/F14/F14_day12_preview.png" alt="F14 day 12" /><figcaption>Day 12</figcaption></figure><figure><img src="../previews/F14/F14_day16_preview.png" alt="F14 day 16" /><figcaption>Day 16</figcaption></figure><figure><img src="../previews/F14/F14_day20_preview.png" alt="F14 day 20" /><figcaption>Day 20</figcaption></figure><figure><img src="../previews/F14/F14_day25_preview.png" alt="F14 day 25" /><figcaption>Day 25</figcaption></figure><figure><img src="../previews/F14/F14_day29_preview.png" alt="F14 day 29" /><figcaption>Day 29</figcaption></figure><figure><img src="../previews/F14/F14_day32_preview.png" alt="F14 day 32" /><figcaption>Day 32</figcaption></figure><figure><img src="../previews/F14/F14_day36_preview.png" alt="F14 day 36" /><figcaption>Day 36</figcaption></figure><figure><img src="../previews/F14/F14_day39_preview.png" alt="F14 day 39" /><figcaption>Day 39</figcaption></figure></div>
+      </details>
+    </div>
+    
+  <h2>Neuron / ROI Candidate Viewers</h2>
+  <p>Each card is a separate neuron/ROI candidate. Manual identity status remains preliminary until reviewed.</p>
+  <div class="roi-card-grid">
+    <article class="roi-viewer-card has-warning">
+      <div class="roi-card-header"><h3>ROI001</h3><strong>F14_ROI001</strong></div>
+      <p>PLD3_TMEM106B_mCherry_primary</p>
+      <img src="../roi_previews/F14/F14_ROI001.png" alt="F14_ROI001 preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>uncertain_identity</dd>
+        <dt>Pass days</dt><dd>8, 12, 20, 29, 32</dd>
+        <dt>Review days</dt><dd>16, 36, 39</dd>
+        <dt>Excluded days</dt><dd>25</dd>
+        <dt>mCherry</dt><dd>puncta 6.6; punctate fraction 0.173; diffuse/punctate 5.07</dd>
+        <dt>Colocalization</dt><dd>Pearson 0.109; Manders A-in-B 0.264; B-in-A 0.0234</dd>
+        <dt>Warnings</dt><dd>channel_a_possible_saturation_or_clipping</dd>
+        <dt>Source</dt><dd>overlap-only/common-overlap source</dd>
+        <dt>Crop</dt><dd>x=461:653, y=916:1108</dd>
+      </dl>
+      <p><a href="../rois/F14/F14_ROI001.html">Open ROI detail page</a></p>
+    </article>
+    
+    <article class="roi-viewer-card">
+      <div class="roi-card-header"><h3>ROI002</h3><strong>F14_ROI002</strong></div>
+      <p>PLD3_TMEM106B_mCherry_primary</p>
+      <img src="../roi_previews/F14/F14_ROI002.png" alt="F14_ROI002 preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>uncertain_identity</dd>
+        <dt>Pass days</dt><dd>8, 12, 20, 29, 32</dd>
+        <dt>Review days</dt><dd>16, 36, 39</dd>
+        <dt>Excluded days</dt><dd>25</dd>
+        <dt>mCherry</dt><dd>puncta 5.6; punctate fraction 0.125; diffuse/punctate 16.1</dd>
+        <dt>Colocalization</dt><dd>Pearson 0.0947; Manders A-in-B 0.416; B-in-A 0.126</dd>
+        <dt>Warnings</dt><dd>None recorded</dd>
+        <dt>Source</dt><dd>overlap-only/common-overlap source</dd>
+        <dt>Crop</dt><dd>x=153:345, y=687:879</dd>
+      </dl>
+      <p><a href="../rois/F14/F14_ROI002.html">Open ROI detail page</a></p>
+    </article>
+    
+    <article class="roi-viewer-card has-warning">
+      <div class="roi-card-header"><h3>ROI003</h3><strong>F14_ROI003</strong></div>
+      <p>PLD3_TMEM106B_mCherry_primary</p>
+      <img src="../roi_previews/F14/F14_ROI003.png" alt="F14_ROI003 preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>uncertain_identity</dd>
+        <dt>Pass days</dt><dd>8, 12, 20, 29, 32</dd>
+        <dt>Review days</dt><dd>16, 36, 39</dd>
+        <dt>Excluded days</dt><dd>25</dd>
+        <dt>mCherry</dt><dd>puncta 7.6; punctate fraction 0.183; diffuse/punctate 4.58</dd>
+        <dt>Colocalization</dt><dd>Pearson 0.122; Manders A-in-B 0.17; B-in-A 0.0595</dd>
+        <dt>Warnings</dt><dd>channel_a_possible_saturation_or_clipping</dd>
+        <dt>Source</dt><dd>overlap-only/common-overlap source</dd>
+        <dt>Crop</dt><dd>x=199:391, y=70:262</dd>
+      </dl>
+      <p><a href="../rois/F14/F14_ROI003.html">Open ROI detail page</a></p>
+    </article>
+    
+    <article class="roi-viewer-card has-warning">
+      <div class="roi-card-header"><h3>ROI004</h3><strong>F14_ROI004</strong></div>
+      <p>PLD3_TMEM106B_mCherry_primary</p>
+      <img src="../roi_previews/F14/F14_ROI004.png" alt="F14_ROI004 preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>uncertain_identity</dd>
+        <dt>Pass days</dt><dd>8, 12, 20, 29, 32</dd>
+        <dt>Review days</dt><dd>16, 36, 39</dd>
+        <dt>Excluded days</dt><dd>25</dd>
+        <dt>mCherry</dt><dd>puncta 6.6; punctate fraction 0.148; diffuse/punctate 6.53</dd>
+        <dt>Colocalization</dt><dd>Pearson 0.127; Manders A-in-B 0.288; B-in-A 0.0947</dd>
+        <dt>Warnings</dt><dd>channel_a_possible_saturation_or_clipping</dd>
+        <dt>Source</dt><dd>overlap-only/common-overlap source</dd>
+        <dt>Crop</dt><dd>x=407:599, y=1007:1199</dd>
+      </dl>
+      <p><a href="../rois/F14/F14_ROI004.html">Open ROI detail page</a></p>
+    </article>
+    
+    <article class="roi-viewer-card">
+      <div class="roi-card-header"><h3>ROI005</h3><strong>F14_ROI005</strong></div>
+      <p>PLD3_TMEM106B_mCherry_primary</p>
+      <img src="../roi_previews/F14/F14_ROI005.png" alt="F14_ROI005 preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>uncertain_identity</dd>
+        <dt>Pass days</dt><dd>8, 12, 20, 29, 32</dd>
+        <dt>Review days</dt><dd>16, 36, 39</dd>
+        <dt>Excluded days</dt><dd>25</dd>
+        <dt>mCherry</dt><dd>puncta 8.2; punctate fraction 0.111; diffuse/punctate 29.6</dd>
+        <dt>Colocalization</dt><dd>Pearson 0.097; Manders A-in-B 0.43; B-in-A 0.137</dd>
+        <dt>Warnings</dt><dd>None recorded</dd>
+        <dt>Source</dt><dd>overlap-only/common-overlap source</dd>
+        <dt>Crop</dt><dd>x=747:939, y=836:1028</dd>
+      </dl>
+      <p><a href="../rois/F14/F14_ROI005.html">Open ROI detail page</a></p>
+    </article>
+    </div>
+  <h2>Full Registered vs Overlap-Only</h2>
+  <p>Overlap-only views remove non-shared edge regions across days to reduce cells popping in/out due to field-of-view drift. Full registered views are retained for context but should be interpreted cautiously.</p>
+  <dl>
+    <dt>Full registered context</dt><dd>Large microscopy file stored locally/shared drive</dd>
+    <dt>Overlap-only analysis stack</dt><dd>Large microscopy file stored locally/shared drive</dd>
+    <dt>Large-shift days</dt><dd>4</dd>
+    <dt>ROI/metrics source</dt><dd>registered_common_overlap</dd>
+  </dl>
+</section>
+<!-- WELL_VIEWER_SECTION_END -->
+
           <section class="callout">
             <h2>ROI Readiness</h2>
             <p>4 large-shift days. Neuron ROI crops have not been generated yet.</p>

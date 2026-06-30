@@ -1,4 +1,4 @@
-Total size: 77.47 MiB
+Total size: 78.86 MiB
 File count: 2076
 Size warning: False
 Forbidden files: 0
@@ -8,8 +8,8 @@ Largest files:
       957931  queue_index.json
       524446  roi_review_queue.html
       507410  roi_review_unreviewed.html
-      235099  summaries/overlap_only_summary.json
       216523  roi_review_saturation_clipping_warnings.html
+      200539  summaries/overlap_only_summary.json
       139729  qc_summary.html
       137310  roi_previews/I10/I10_ROI005.png
       135394  roi_previews/N20/N20_ROI004.png

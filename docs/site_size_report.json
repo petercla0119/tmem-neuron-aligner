@@ -1,8 +1,8 @@
 {
   "schema": "tmem_github_pages_dashboard_report_v1",
   "site_root": "docs",
-  "total_bytes": 81228090,
-  "total_mib": 77.47,
+  "total_bytes": 82692248,
+  "total_mib": 78.86,
   "file_count": 2076,
   "copied_file_count": 2055,
   "skipped": [],
@@ -24,12 +24,12 @@
       "bytes": 507410
     },
     {
-      "path": "summaries/overlap_only_summary.json",
-      "bytes": 235099
-    },
-    {
       "path": "roi_review_saturation_clipping_warnings.html",
       "bytes": 216523
+    },
+    {
+      "path": "summaries/overlap_only_summary.json",
+      "bytes": 200539
     },
     {
       "path": "qc_summary.html",

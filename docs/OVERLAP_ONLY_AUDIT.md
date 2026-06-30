@@ -46,17 +46,17 @@ python scripts/build_overlap_only_audit.py
 This creates:
 
 ```text
-~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/overlap_only_audit/overlap_only_summary.csv
-~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/overlap_only_audit/overlap_only_summary.json
-~/Documents/TMEM106B_processed/full_mcherry_valid_queue_abc/wells/<well>/overlap_only_metadata/<well>_overlap_only_metadata.json
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_queue_abc/overlap_only_audit/overlap_only_summary.csv
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_queue_abc/overlap_only_audit/overlap_only_summary.json
+LOCAL_PROCESSED_OUTPUT/full_mcherry_valid_queue_abc/wells/<well>/overlap_only_metadata/<well>_overlap_only_metadata.json
 ```
 
 It also updates:
 
 ```text
-~/Documents/TMEM106B_processed/dashboard/overlap_only_qc_summary.html
-~/Documents/TMEM106B_processed/dashboard/wells/<well>.html
-~/Documents/TMEM106B_processed/dashboard/rois/<well>/<roi>.html
+LOCAL_PROCESSED_OUTPUT/dashboard/overlap_only_qc_summary.html
+LOCAL_PROCESSED_OUTPUT/dashboard/wells/<well>.html
+LOCAL_PROCESSED_OUTPUT/dashboard/rois/<well>/<roi>.html
 ```
 
 ## Dashboard Interpretation

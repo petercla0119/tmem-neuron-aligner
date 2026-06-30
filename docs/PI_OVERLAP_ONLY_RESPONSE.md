@@ -60,8 +60,8 @@ All biological claims remain preliminary until ROI identity review is complete.
 Local dashboard:
 
 ```text
-~/Documents/TMEM106B_processed/dashboard/overlap_only_pi_summary.html
-~/Documents/TMEM106B_processed/dashboard/overlap_only_qc_summary.html
+LOCAL_PROCESSED_OUTPUT/dashboard/overlap_only_pi_summary.html
+LOCAL_PROCESSED_OUTPUT/dashboard/overlap_only_qc_summary.html
 ```
 
 GitHub Pages dashboard:

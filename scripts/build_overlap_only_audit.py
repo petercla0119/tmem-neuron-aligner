@@ -42,6 +42,7 @@ def main() -> None:
     for well in wells:
         rows.append(build_well_record(well, abc_root=abc_root, defg_root=defg_root, dashboard_root=dashboard_root))
     summary = pd.DataFrame(rows).sort_values(["retained_fraction", "well"]).reset_index(drop=True)
+    roi_dashboard = load_roi_dashboard_data(defg_root=defg_root, dashboard_root=dashboard_root)
 
     audit_root = abc_root / "overlap_only_audit"
     audit_root.mkdir(parents=True, exist_ok=True)
@@ -58,10 +59,10 @@ def main() -> None:
     summary_page.write_text(render_overlap_summary_page(summary, csv_path=csv_path, json_path=json_path), encoding="utf-8")
     pi_page = dashboard_root / "overlap_only_pi_summary.html"
     pi_page.write_text(render_pi_summary_page(summary), encoding="utf-8")
-    inject_dashboard_index_link(dashboard_root)
+    inject_dashboard_index_link(dashboard_root, summary, roi_dashboard)
     for record in rows:
-        inject_well_overlap_section(dashboard_root, record)
-    inject_roi_overlap_sections(dashboard_root, rows)
+        inject_well_viewer_section(dashboard_root, record, roi_dashboard.get(record["well"], []))
+    inject_roi_overlap_sections(dashboard_root, rows, roi_dashboard)
 
     print(f"Wrote overlap-only summary CSV: {csv_path}")
     print(f"Wrote overlap-only summary JSON: {json_path}")
@@ -220,6 +221,73 @@ def write_well_metadata(record: dict[str, Any], *, abc_root: Path) -> None:
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def load_roi_dashboard_data(*, defg_root: Path, dashboard_root: Path) -> dict[str, list[dict[str, Any]]]:
+    label = "full_mcherry_valid_pass5"
+    roi_csv = defg_root / f"{label}_roi_candidates.csv"
+    metrics_csv = defg_root / f"{label}_mcherry_metrics.csv"
+    coloc_csv = defg_root / f"{label}_colocalization_metrics.csv"
+    review_csv = defg_root / "review_summaries" / f"{label}_roi_identity_review_working.csv"
+    if not roi_csv.exists():
+        return {}
+    rois = pd.read_csv(roi_csv)
+    metrics = pd.read_csv(metrics_csv) if metrics_csv.exists() else pd.DataFrame()
+    coloc = pd.read_csv(coloc_csv) if coloc_csv.exists() else pd.DataFrame()
+    review = pd.read_csv(review_csv) if review_csv.exists() else pd.DataFrame()
+    metric_summary = summarize_mcherry_by_roi(metrics)
+    coloc_summary = summarize_colocalization_by_roi(coloc)
+    review_summary = review[["roi_id", "manual_identity_status", "reviewer_notes"]] if "roi_id" in review else pd.DataFrame()
+    merged = rois.merge(metric_summary, on="roi_id", how="left")
+    merged = merged.merge(coloc_summary, on="roi_id", how="left")
+    if not review_summary.empty:
+        merged = merged.drop(columns=[column for column in ["manual_identity_status", "reviewer_notes"] if column in merged], errors="ignore")
+        merged = merged.merge(review_summary, on="roi_id", how="left")
+    records: dict[str, list[dict[str, Any]]] = {}
+    for row in merged.to_dict("records"):
+        well = str(row["well"])
+        roi_id = str(row["roi_id"])
+        row["dashboard_preview_rel_from_well"] = f"../roi_previews/{well}/{roi_id}.png"
+        row["dashboard_preview_path"] = str(dashboard_root / "roi_previews" / well / f"{roi_id}.png")
+        row["roi_detail_rel_from_well"] = f"../rois/{well}/{roi_id}.html"
+        row["overlap_only_source_label"] = (
+            "overlap-only/common-overlap source" if "registered_common_overlap" in str(row.get("source_stack", "")) else "source review needed"
+        )
+        records.setdefault(well, []).append(row)
+    for well in records:
+        records[well] = sorted(records[well], key=lambda row: str(row["roi_id"]))
+    return records
+
+
+def summarize_mcherry_by_roi(metrics: pd.DataFrame) -> pd.DataFrame:
+    if metrics.empty or "roi_id" not in metrics:
+        return pd.DataFrame(columns=["roi_id"])
+    summary = metrics.groupby("roi_id", as_index=False).agg(
+        mean_puncta_count=("puncta_count", "mean"),
+        mean_punctate_fraction=("punctate_fraction", "mean"),
+        mean_diffuse_to_punctate_ratio=("diffuse_to_punctate_ratio", "mean"),
+        mcherry_metric_rows=("day", "count"),
+    )
+    return summary
+
+
+def summarize_colocalization_by_roi(coloc: pd.DataFrame) -> pd.DataFrame:
+    if coloc.empty or "roi_id" not in coloc:
+        return pd.DataFrame(columns=["roi_id"])
+    summary = coloc.groupby("roi_id", as_index=False).agg(
+        mean_pearson_correlation=("pearson_correlation", "mean"),
+        mean_manders_a_in_b=("manders_a_in_b", "mean"),
+        mean_manders_b_in_a=("manders_b_in_a", "mean"),
+        colocalization_rows=("day", "count"),
+        saturation_warning_rows=("warnings", lambda values: int(values.fillna("").str.contains("saturation|clipping", case=False, regex=True).sum())),
+    )
+    warnings = coloc.groupby("roi_id")["warnings"].apply(join_warnings).rename("colocalization_warnings")
+    return summary.merge(warnings, on="roi_id", how="left")
+
+
+def join_warnings(values: pd.Series) -> str:
+    warnings = sorted({str(value).strip() for value in values.dropna() if str(value).strip() and str(value).lower() != "nan"})
+    return "; ".join(warnings)
+
+
 def render_overlap_summary_page(summary: pd.DataFrame, *, csv_path: Path, json_path: Path) -> str:
     worst = summary.sort_values("retained_fraction").head(20)
     best = summary.sort_values("retained_fraction", ascending=False).head(20)
@@ -300,15 +368,45 @@ def render_pi_summary_page(summary: pd.DataFrame) -> str:
     return render_page("PI Summary: Overlap-Only Response", body)
 
 
-def inject_dashboard_index_link(dashboard_root: Path) -> None:
+def inject_dashboard_index_link(dashboard_root: Path, summary: pd.DataFrame, roi_dashboard: dict[str, list[dict[str, Any]]]) -> None:
     page = dashboard_root / "index.html"
     if not page.exists():
         return
-    section = """
+    rows = []
+    for _, record in summary.sort_values("well").iterrows():
+        well = str(record["well"])
+        roi_records = roi_dashboard.get(well, [])
+        statuses = [str(row.get("manual_identity_status", "uncertain_identity") or "uncertain_identity") for row in roi_records]
+        confirmed = statuses.count("confirmed_same_neuron")
+        uncertain = statuses.count("uncertain_identity")
+        excluded = sum(1 for status in statuses if status in {"exclude", "poor_registration", "lost_or_dead"})
+        overlap_category = str(record.get("recommended_use", "review_only"))
+        rows.append(
+            "<tr>"
+            f"<td><strong>{html.escape(well)}</strong></td>"
+            f"<td>{html.escape(str(record['condition']))}</td>"
+            f"<td>{html.escape(str(record['qc_status']))}</td>"
+            f"<td>{html.escape(overlap_category)}<br><small>{float(record['retained_percent']):.1f}% retained</small></td>"
+            f"<td>{len(roi_records)}</td>"
+            f"<td>{confirmed}</td>"
+            f"<td>{uncertain}</td>"
+            f"<td>{excluded}</td>"
+            f'<td><a class="button-link" href="wells/{html.escape(well)}.html">Open Well Viewer</a></td>'
+            "</tr>"
+        )
+    section = f"""
 <!-- OVERLAP_ONLY_SECTION_START -->
 <section>
+  <h2>Plate / Well Viewer</h2>
+  <p>Open each well to view its overlap-only time-series stack and separated neuron/ROI candidate viewers.</p>
+  <table>
+    <thead>
+      <tr><th>Well</th><th>Condition</th><th>QC category</th><th>Overlap retained</th><th>ROIs</th><th>Confirmed</th><th>Uncertain</th><th>Excluded/flagged</th><th>Viewer</th></tr>
+    </thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
   <h2>Overlap-Only Analysis Views</h2>
-  <p>Overlap-only views remove non-shared edge regions across days to reduce cells popping in/out due to field-of-view drift. Full registered views are retained for context but should be interpreted cautiously.</p>
+  <p>Overlap-only/common-overlap views remove non-shared edge regions across days to reduce cells popping in/out due to field-of-view drift. Full registered views are retained for context but should be interpreted cautiously.</p>
   <p><a href="overlap_only_pi_summary.html">Open PI-facing overlap-only summary</a></p>
   <p><a href="overlap_only_qc_summary.html">Open overlap-only QC summary</a></p>
 </section>
@@ -317,52 +415,205 @@ def inject_dashboard_index_link(dashboard_root: Path) -> None:
     replace_marked_section(page, section, "OVERLAP_ONLY_SECTION_START", "OVERLAP_ONLY_SECTION_END")
 
 
-def inject_well_overlap_section(dashboard_root: Path, record: dict[str, Any]) -> None:
+def inject_well_viewer_section(dashboard_root: Path, record: dict[str, Any], roi_records: list[dict[str, Any]]) -> None:
     well = record["well"]
     page = dashboard_root / "wells" / f"{well}.html"
     if not page.exists():
         return
     warning = record["overlap_warning"] or "none"
+    pass_days, review_days, excluded_days = day_groups_for_well(roi_records, record)
     section = f"""
-<!-- OVERLAP_ONLY_WELL_SECTION_START -->
-<section>
+<!-- WELL_VIEWER_SECTION_START -->
+<section class="well-viewer">
+  <style>
+    .well-viewer .time-series-viewer {{ background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }}
+    .well-viewer .day-controls {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }}
+    .well-viewer .day-controls input {{ position: absolute; opacity: 0; pointer-events: none; }}
+    .well-viewer .day-controls label {{ display: inline-block; padding: 7px 10px; border: 1px solid #bcc6d4; border-radius: 6px; background: #f7f8fa; cursor: pointer; font-size: 13px; }}
+    .well-viewer .day-controls input:checked + label {{ background: #22577a; color: white; border-color: #22577a; }}
+    .well-viewer .time-series-frame {{ display: grid; place-items: center; background: #111; border-radius: 8px; min-height: 320px; overflow: hidden; }}
+    .well-viewer .time-series-frame img {{ display: none; width: 100%; max-height: 720px; object-fit: contain; margin: 0; border: 0; background: #111; }}
+    .well-viewer .time-series-montage {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }}
+    .well-viewer .time-series-montage figure {{ margin: 0; }}
+    .well-viewer .roi-card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }}
+    .well-viewer .roi-viewer-card {{ background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }}
+    .well-viewer .roi-viewer-card.has-warning {{ border-left: 6px solid #b7791f; }}
+    .well-viewer .roi-card-header {{ display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }}
+    .well-viewer .roi-card-header h3 {{ margin: 0; font-size: 22px; }}
+    .well-viewer .roi-viewer-card img {{ width: 100%; height: auto; border: 1px solid #edf0f4; background: #111; }}
+    .well-viewer .roi-viewer-card dl {{ grid-template-columns: 125px 1fr; font-size: 13px; padding: 12px; }}
+    .button-link {{ display: inline-block; padding: 6px 9px; border: 1px solid #22577a; border-radius: 6px; text-decoration: none; }}
+  </style>
+  <h2>Well Summary</h2>
+  <dl>
+    <dt>Well</dt><dd>{html.escape(well)}</dd>
+    <dt>Condition</dt><dd>{html.escape(str(record['condition']))}</dd>
+    <dt>Days included</dt><dd>{html.escape(str(record['days_included']))}</dd>
+    <dt>Included pass days</dt><dd>{html.escape(pass_days or 'none listed')}</dd>
+    <dt>Review-only days</dt><dd>{html.escape(review_days or 'none')}</dd>
+    <dt>Excluded days</dt><dd>{html.escape(excluded_days or 'none')}</dd>
+    <dt>Overlap retained</dt><dd>{record['retained_percent']:.1f}% ({record['overlap_width']} x {record['overlap_height']} px from {record['full_width']} x {record['full_height']} px)</dd>
+    <dt>QC status</dt><dd>{html.escape(str(record['qc_status']))}</dd>
+    <dt>Warning labels</dt><dd>{html.escape(warning)}</dd>
+    <dt>Recommended use</dt><dd>{html.escape(str(record['recommended_use']))}</dd>
+  </dl>
+  <h2>Stacked Well Time-Series Viewer</h2>
+  <p><strong>Overlap-only/common-overlap time-series preview — preferred for analysis.</strong> Use the day buttons to switch the aligned day preview in the same frame. Full registered context is retained separately and may include edge artifacts.</p>
+  {render_time_series_viewer(well, dashboard_root)}
+  <h2>Neuron / ROI Candidate Viewers</h2>
+  <p>Each card is a separate neuron/ROI candidate. Manual identity status remains preliminary until reviewed.</p>
+  <div class="roi-card-grid">{''.join(render_well_roi_card(row) for row in roi_records)}</div>
   <h2>Full Registered vs Overlap-Only</h2>
   <p>Overlap-only views remove non-shared edge regions across days to reduce cells popping in/out due to field-of-view drift. Full registered views are retained for context but should be interpreted cautiously.</p>
   <dl>
     <dt>Full registered context</dt><dd>{html.escape(record['registered_full_stack'])}</dd>
     <dt>Overlap-only analysis stack</dt><dd>{html.escape(record['registered_common_overlap_stack'])}</dd>
-    <dt>Overlap retained</dt><dd>{record['retained_percent']:.1f}% ({record['overlap_width']} x {record['overlap_height']} px from {record['full_width']} x {record['full_height']} px)</dd>
-    <dt>Overlap warning</dt><dd>{html.escape(warning)}</dd>
     <dt>Large-shift days</dt><dd>{record['large_shift_days']}</dd>
     <dt>ROI/metrics source</dt><dd>{html.escape(record['roi_metrics_source'])}</dd>
-    <dt>Recommended use</dt><dd>{html.escape(record['recommended_use'])}</dd>
   </dl>
 </section>
-<!-- OVERLAP_ONLY_WELL_SECTION_END -->
+<!-- WELL_VIEWER_SECTION_END -->
 """
-    replace_marked_section(page, section, "OVERLAP_ONLY_WELL_SECTION_START", "OVERLAP_ONLY_WELL_SECTION_END")
+    replace_marked_section_top(page, section, "WELL_VIEWER_SECTION_START", "WELL_VIEWER_SECTION_END")
 
 
-def inject_roi_overlap_sections(dashboard_root: Path, records: list[dict[str, Any]]) -> None:
+def day_groups_for_well(roi_records: list[dict[str, Any]], record: dict[str, Any]) -> tuple[str, str, str]:
+    if roi_records:
+        first = roi_records[0]
+        return (
+            clean_pipe_days(first.get("pass_days", "")),
+            clean_pipe_days(first.get("review_days", "")),
+            clean_pipe_days(first.get("excluded_days", "")),
+        )
+    return clean_pipe_days(record.get("days_included", "")), clean_pipe_days(record.get("review_or_exclude_days", "")), ""
+
+
+def clean_pipe_days(value: Any) -> str:
+    text = str(value) if value is not None and not pd.isna(value) else ""
+    if not text:
+        return ""
+    return ", ".join(part for part in text.split("|") if part)
+
+
+def render_time_series_viewer(well: str, dashboard_root: Path) -> str:
+    preview_paths = sorted(
+        (dashboard_root / "previews" / well).glob(f"{well}_day*_preview.png"),
+        key=lambda path: day_from_preview(path.name),
+    )
+    if not preview_paths:
+        return "<p>No dashboard preview PNGs found for this well.</p>"
+    viewer_id = f"viewer-{well}"
+    controls = []
+    frames = []
+    montage = []
+    for index, path in enumerate(preview_paths):
+        day = day_from_preview(path.name)
+        input_id = f"{viewer_id}-day-{day}"
+        checked = " checked" if index == 0 else ""
+        controls.append(f'<input type="radio" name="{viewer_id}" id="{input_id}"{checked} />')
+        controls.append(f'<label for="{input_id}">Day {day}</label>')
+        rel = f"../previews/{html.escape(well)}/{html.escape(path.name)}"
+        frames.append(f'<img class="day-frame day-{day}" src="{rel}" alt="{html.escape(well)} day {day} overlap-only preview" />')
+        montage.append(f'<figure><img src="{rel}" alt="{html.escape(well)} day {day}" /><figcaption>Day {day}</figcaption></figure>')
+    css = "\n".join(
+        f"#{viewer_id}-day-{day_from_preview(path.name)}:checked ~ .time-series-frame .day-{day_from_preview(path.name)} {{ display: block; }}"
+        for path in preview_paths
+    )
+    return f"""
+    <div class="time-series-viewer">
+      <style>{css}</style>
+      <div class="day-controls">{''.join(controls)}</div>
+      <div class="time-series-frame">{''.join(frames)}</div>
+      <details>
+        <summary>Show all days as montage</summary>
+        <div class="time-series-montage">{''.join(montage)}</div>
+      </details>
+    </div>
+    """
+
+
+def day_from_preview(name: str) -> int:
+    match = re.search(r"_day(\d+)_", name)
+    return int(match.group(1)) if match else 0
+
+
+def render_well_roi_card(row: dict[str, Any]) -> str:
+    roi_id = str(row.get("roi_id", ""))
+    status = str(row.get("manual_identity_status", "uncertain_identity") or "uncertain_identity")
+    warnings = str(row.get("colocalization_warnings", "") or "")
+    if warnings.lower() == "nan" or not warnings:
+        warnings = "None recorded"
+    crop = (
+        f"x={row.get('crop_common_overlap_x0', '')}:{row.get('crop_common_overlap_x1', '')}, "
+        f"y={row.get('crop_common_overlap_y0', '')}:{row.get('crop_common_overlap_y1', '')}"
+    )
+    title = roi_id.split("_")[-1] if "_" in roi_id else roi_id
+    warning_class = " has-warning" if warnings != "None recorded" else ""
+    return f"""
+    <article class="roi-viewer-card{warning_class}">
+      <div class="roi-card-header"><h3>{html.escape(title)}</h3><strong>{html.escape(roi_id)}</strong></div>
+      <p>{html.escape(str(row.get('condition', '')))}</p>
+      <img src="{html.escape(str(row.get('dashboard_preview_rel_from_well', '')))}" alt="{html.escape(roi_id)} preview montage" />
+      <dl>
+        <dt>Manual identity</dt><dd>{html.escape(status)}</dd>
+        <dt>Pass days</dt><dd>{html.escape(clean_pipe_days(row.get('pass_days', '')))}</dd>
+        <dt>Review days</dt><dd>{html.escape(clean_pipe_days(row.get('review_days', '')) or 'none')}</dd>
+        <dt>Excluded days</dt><dd>{html.escape(clean_pipe_days(row.get('excluded_days', '')) or 'none')}</dd>
+        <dt>mCherry</dt><dd>puncta {format_number(row.get('mean_puncta_count'))}; punctate fraction {format_number(row.get('mean_punctate_fraction'))}; diffuse/punctate {format_number(row.get('mean_diffuse_to_punctate_ratio'))}</dd>
+        <dt>Colocalization</dt><dd>Pearson {format_number(row.get('mean_pearson_correlation'))}; Manders A-in-B {format_number(row.get('mean_manders_a_in_b'))}; B-in-A {format_number(row.get('mean_manders_b_in_a'))}</dd>
+        <dt>Warnings</dt><dd>{html.escape(warnings)}</dd>
+        <dt>Source</dt><dd>{html.escape(str(row.get('overlap_only_source_label', '')))}</dd>
+        <dt>Crop</dt><dd>{html.escape(crop)}</dd>
+      </dl>
+      <p><a href="{html.escape(str(row.get('roi_detail_rel_from_well', '')))}">Open ROI detail page</a></p>
+    </article>
+    """
+
+
+def format_number(value: Any) -> str:
+    try:
+        if value is None or pd.isna(value):
+            return "n/a"
+        return f"{float(value):.3g}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def inject_roi_overlap_sections(
+    dashboard_root: Path,
+    records: list[dict[str, Any]],
+    roi_dashboard: dict[str, list[dict[str, Any]]],
+) -> None:
     by_well = {record["well"]: record for record in records}
+    by_roi = {str(row["roi_id"]): row for roi_rows in roi_dashboard.values() for row in roi_rows}
     for page in (dashboard_root / "rois").glob("*/*.html"):
         match = re.match(r"([A-Z]\d{2})_ROI\d+\.html$", page.name)
         if not match:
             continue
-        record = by_well.get(match.group(1))
+        well = match.group(1)
+        roi_id = page.stem
+        record = by_well.get(well)
         if not record:
             continue
+        roi = by_roi.get(roi_id, {})
         section = f"""
 <!-- OVERLAP_ONLY_ROI_SECTION_START -->
 <section>
+  <p><a href="../../wells/{html.escape(well)}.html">Back to well viewer</a></p>
   <h2>Overlap-Only ROI Source</h2>
   <p>This ROI candidate was generated from the overlap-only common-overlap stack when pass5 source metadata points to <code>registered_common_overlap</code>.</p>
   <dl>
+    <dt>Parent well</dt><dd>{html.escape(well)}</dd>
+    <dt>ROI ID</dt><dd>{html.escape(roi_id)}</dd>
+    <dt>Manual identity</dt><dd>{html.escape(str(roi.get('manual_identity_status', 'uncertain_identity') or 'uncertain_identity'))}</dd>
     <dt>Output level</dt><dd>overlap_only_analysis</dd>
+    <dt>Overlap source label</dt><dd>{html.escape(str(roi.get('overlap_only_source_label', 'overlap-only/common-overlap source')))}</dd>
     <dt>Well retained overlap</dt><dd>{record['retained_percent']:.1f}%</dd>
     <dt>Full-registered crop box</dt><dd>x={record['overlap_crop_x_start_registered']}:{record['overlap_crop_x_stop_registered']}, y={record['overlap_crop_y_start_registered']}:{record['overlap_crop_y_stop_registered']}</dd>
     <dt>Traceability</dt><dd>{html.escape(record['original_pixel_traceability'])}</dd>
   </dl>
+  <p><strong>Review instruction:</strong> confirm same-neuron identity before biological interpretation; leave uncertain candidates as <code>uncertain_identity</code> or mark poor-registration/exclude in the working review CSV.</p>
+  <p><a href="../../wells/{html.escape(well)}.html">Back to well viewer</a></p>
 </section>
 <!-- OVERLAP_ONLY_ROI_SECTION_END -->
 """
@@ -379,6 +630,23 @@ def replace_marked_section(path: Path, section: str, start_name: str, end_name: 
         text = before + section.strip() + after
     elif "</main>" in text:
         text = text.replace("</main>", section + "\n</main>", 1)
+    elif "</body>" in text:
+        text = text.replace("</body>", section + "\n</body>", 1)
+    else:
+        text += "\n" + section
+    path.write_text(text, encoding="utf-8")
+
+
+def replace_marked_section_top(path: Path, section: str, start_name: str, end_name: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    start_marker = f"<!-- {start_name} -->"
+    end_marker = f"<!-- {end_name} -->"
+    if start_marker in text and end_marker in text:
+        before = text.split(start_marker, 1)[0]
+        after = text.split(end_marker, 1)[1]
+        text = before + section.strip() + after
+    elif "<main>" in text:
+        text = text.replace("<main>", "<main>\n" + section, 1)
     elif "</body>" in text:
         text = text.replace("</body>", section + "\n</body>", 1)
     else:
