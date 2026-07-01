@@ -21,7 +21,7 @@ LOCAL_PROCESSED_OUTPUT/pilot/e05_f05_i05_j05_m05_n05_longitudinal_comparison/
 Each well also has its own local stack outputs under:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/{well}_longitudinal/
+LOCAL_INTERIM_OUTPUT/pilot/{well}_longitudinal/
 LOCAL_PROCESSED_OUTPUT/pilot/{well}_longitudinal/
 ```
 

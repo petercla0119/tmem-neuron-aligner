@@ -43,26 +43,8 @@
 
 <!-- WELL_VIEWER_SECTION_START -->
 <section class="well-viewer">
-  <style>
-    .well-viewer .time-series-viewer { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }
-    .well-viewer .day-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    .well-viewer .day-controls input { position: absolute; opacity: 0; pointer-events: none; }
-    .well-viewer .day-controls label { display: inline-block; padding: 7px 10px; border: 1px solid #bcc6d4; border-radius: 6px; background: #f7f8fa; cursor: pointer; font-size: 13px; }
-    .well-viewer .day-controls input:checked + label { background: #22577a; color: white; border-color: #22577a; }
-    .well-viewer .time-series-frame { display: grid; place-items: center; background: #111; border-radius: 8px; min-height: 320px; overflow: hidden; }
-    .well-viewer .time-series-frame img { display: none; width: 100%; max-height: 720px; object-fit: contain; margin: 0; border: 0; background: #111; }
-    .well-viewer .time-series-montage { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
-    .well-viewer .time-series-montage figure { margin: 0; }
-    .well-viewer .roi-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
-    .well-viewer .roi-viewer-card { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 14px; }
-    .well-viewer .roi-viewer-card.has-warning { border-left: 6px solid #b7791f; }
-    .well-viewer .roi-card-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-    .well-viewer .roi-card-header h3 { margin: 0; font-size: 22px; }
-    .well-viewer .roi-viewer-card img { width: 100%; height: auto; border: 1px solid #edf0f4; background: #111; }
-    .well-viewer .roi-viewer-card dl { grid-template-columns: 125px 1fr; font-size: 13px; padding: 12px; }
-    .button-link { display: inline-block; padding: 6px 9px; border: 1px solid #22577a; border-radius: 6px; text-decoration: none; }
-  </style>
   <h2>Well Summary</h2>
+  <p class="caution">This is a first-pass technical review viewer. Alignment and ROI identity must be reviewed before biological interpretation.</p>
   <dl>
     <dt>Well</dt><dd>I06</dd>
     <dt>Condition</dt><dd>PLD3_mCherry_reporter_control</dd>
@@ -72,37 +54,48 @@
     <dt>Excluded days</dt><dd>20, 29, 32, 39</dd>
     <dt>Overlap retained</dt><dd>12.4% (620 x 1649 px from 2868 x 2868 px)</dd>
     <dt>QC status</dt><dd>review_low_overlap</dd>
+    <dt>Alignment QC category</dt><dd>pseudo_fov_alignment_needed</dd>
     <dt>Warning labels</dt><dd>very_low_overlap_retained</dd>
-    <dt>Recommended use</dt><dd>review_only</dd>
+    <dt>Recommended use</dt><dd>pseudo_fov_alignment_needed</dd>
+    <dt>Manual offset review</dt><dd>yes</dd>
+    <dt>Pseudo-FOV review</dt><dd>yes</dd>
   </dl>
-  <h2>Stacked Well Time-Series Viewer</h2>
-  <p><strong>Overlap-only/common-overlap time-series preview — preferred for analysis.</strong> Use the day buttons to switch the aligned day preview in the same frame. Full registered context is retained separately and may include edge artifacts.</p>
+  <h2>Well-Level Overlay / Time-Lapse Viewer</h2>
+  <div class="warning-banner"><strong>Alignment uncertain:</strong> review before interpretation. Manual alignment or pseudo-FOV alignment may be needed.</div>
+  <p><strong>Overlap-only/common-overlap time-series preview - preferred for analysis.</strong> The controls switch days inside the same aligned frame, like a lightweight movie viewer. Full registered context is retained separately and may include edge artifacts.</p>
   
-    <div class="time-series-viewer">
-      <style>#viewer-I06-day-8:checked ~ .time-series-frame .day-8 { display: block; }
-#viewer-I06-day-12:checked ~ .time-series-frame .day-12 { display: block; }
-#viewer-I06-day-16:checked ~ .time-series-frame .day-16 { display: block; }
-#viewer-I06-day-20:checked ~ .time-series-frame .day-20 { display: block; }
-#viewer-I06-day-25:checked ~ .time-series-frame .day-25 { display: block; }
-#viewer-I06-day-29:checked ~ .time-series-frame .day-29 { display: block; }
-#viewer-I06-day-32:checked ~ .time-series-frame .day-32 { display: block; }
-#viewer-I06-day-36:checked ~ .time-series-frame .day-36 { display: block; }
-#viewer-I06-day-39:checked ~ .time-series-frame .day-39 { display: block; }</style>
-      <div class="day-controls"><input type="radio" name="viewer-I06" id="viewer-I06-day-8" checked /><label for="viewer-I06-day-8">Day 8</label><input type="radio" name="viewer-I06" id="viewer-I06-day-12" /><label for="viewer-I06-day-12">Day 12</label><input type="radio" name="viewer-I06" id="viewer-I06-day-16" /><label for="viewer-I06-day-16">Day 16</label><input type="radio" name="viewer-I06" id="viewer-I06-day-20" /><label for="viewer-I06-day-20">Day 20</label><input type="radio" name="viewer-I06" id="viewer-I06-day-25" /><label for="viewer-I06-day-25">Day 25</label><input type="radio" name="viewer-I06" id="viewer-I06-day-29" /><label for="viewer-I06-day-29">Day 29</label><input type="radio" name="viewer-I06" id="viewer-I06-day-32" /><label for="viewer-I06-day-32">Day 32</label><input type="radio" name="viewer-I06" id="viewer-I06-day-36" /><label for="viewer-I06-day-36">Day 36</label><input type="radio" name="viewer-I06" id="viewer-I06-day-39" /><label for="viewer-I06-day-39">Day 39</label></div>
-      <div class="time-series-frame"><img class="day-frame day-8" src="../previews/I06/I06_day8_preview.png" alt="I06 day 8 overlap-only preview" /><img class="day-frame day-12" src="../previews/I06/I06_day12_preview.png" alt="I06 day 12 overlap-only preview" /><img class="day-frame day-16" src="../previews/I06/I06_day16_preview.png" alt="I06 day 16 overlap-only preview" /><img class="day-frame day-20" src="../previews/I06/I06_day20_preview.png" alt="I06 day 20 overlap-only preview" /><img class="day-frame day-25" src="../previews/I06/I06_day25_preview.png" alt="I06 day 25 overlap-only preview" /><img class="day-frame day-29" src="../previews/I06/I06_day29_preview.png" alt="I06 day 29 overlap-only preview" /><img class="day-frame day-32" src="../previews/I06/I06_day32_preview.png" alt="I06 day 32 overlap-only preview" /><img class="day-frame day-36" src="../previews/I06/I06_day36_preview.png" alt="I06 day 36 overlap-only preview" /><img class="day-frame day-39" src="../previews/I06/I06_day39_preview.png" alt="I06 day 39 overlap-only preview" /></div>
+    <div class="time-series-viewer overlay-viewer" id="viewer-I06" data-tmem-viewer>
+      <div class="viewer-toolbar">
+        <button type="button" data-viewer-action="prev">Previous</button>
+        <button type="button" data-viewer-action="play">Play</button>
+        <button type="button" data-viewer-action="next">Next</button>
+        <label>Day <input type="range" min="0" max="8" value="0" step="1" data-viewer-slider /></label>
+        <label>Speed <select data-viewer-speed><option value="1200">slow</option><option value="700" selected>medium</option><option value="350">fast</option></select></label>
+        <label>Opacity <input type="range" min="0.15" max="1" step="0.05" value="1" data-viewer-opacity /></label>
+        <button type="button" data-viewer-action="blink">Blink off</button>
+        <button type="button" data-viewer-action="onion">Onion skin off</button>
+        <strong data-viewer-label>Day 8</strong>
+      </div>
+      <div class="day-controls"><button type="button" data-day-index="0">Day 8</button><button type="button" data-day-index="1">Day 12</button><button type="button" data-day-index="2">Day 16</button><button type="button" data-day-index="3">Day 20</button><button type="button" data-day-index="4">Day 25</button><button type="button" data-day-index="5">Day 29</button><button type="button" data-day-index="6">Day 32</button><button type="button" data-day-index="7">Day 36</button><button type="button" data-day-index="8">Day 39</button></div>
+      <div class="time-series-frame"><img class="viewer-frame active" data-day="8" src="../previews/I06/I06_day8_preview.png" alt="I06 day 8 overlap-only preview" /><img class="viewer-frame" data-day="12" src="../previews/I06/I06_day12_preview.png" alt="I06 day 12 overlap-only preview" /><img class="viewer-frame" data-day="16" src="../previews/I06/I06_day16_preview.png" alt="I06 day 16 overlap-only preview" /><img class="viewer-frame" data-day="20" src="../previews/I06/I06_day20_preview.png" alt="I06 day 20 overlap-only preview" /><img class="viewer-frame" data-day="25" src="../previews/I06/I06_day25_preview.png" alt="I06 day 25 overlap-only preview" /><img class="viewer-frame" data-day="29" src="../previews/I06/I06_day29_preview.png" alt="I06 day 29 overlap-only preview" /><img class="viewer-frame" data-day="32" src="../previews/I06/I06_day32_preview.png" alt="I06 day 32 overlap-only preview" /><img class="viewer-frame" data-day="36" src="../previews/I06/I06_day36_preview.png" alt="I06 day 36 overlap-only preview" /><img class="viewer-frame" data-day="39" src="../previews/I06/I06_day39_preview.png" alt="I06 day 39 overlap-only preview" /></div>
       <details>
         <summary>Show all days as montage</summary>
         <div class="time-series-montage"><figure><img src="../previews/I06/I06_day8_preview.png" alt="I06 day 8" /><figcaption>Day 8</figcaption></figure><figure><img src="../previews/I06/I06_day12_preview.png" alt="I06 day 12" /><figcaption>Day 12</figcaption></figure><figure><img src="../previews/I06/I06_day16_preview.png" alt="I06 day 16" /><figcaption>Day 16</figcaption></figure><figure><img src="../previews/I06/I06_day20_preview.png" alt="I06 day 20" /><figcaption>Day 20</figcaption></figure><figure><img src="../previews/I06/I06_day25_preview.png" alt="I06 day 25" /><figcaption>Day 25</figcaption></figure><figure><img src="../previews/I06/I06_day29_preview.png" alt="I06 day 29" /><figcaption>Day 29</figcaption></figure><figure><img src="../previews/I06/I06_day32_preview.png" alt="I06 day 32" /><figcaption>Day 32</figcaption></figure><figure><img src="../previews/I06/I06_day36_preview.png" alt="I06 day 36" /><figcaption>Day 36</figcaption></figure><figure><img src="../previews/I06/I06_day39_preview.png" alt="I06 day 39" /><figcaption>Day 39</figcaption></figure></div>
       </details>
     </div>
     
+  <h2>Alignment QC</h2>
+  <p>iNeurons should not move much over 1-2 day intervals. Poor overlays suggest imaging-session field shifts, weak reference signal, focus differences, or failed registration. DAPI/reference signal can be low SNR; a stable nuclear/morphology/reference channel is preferred, and changing phenotype channels should not be the main registration anchor. Bad alignment is shown here so it can be reviewed rather than hidden.</p>
+  <table><thead><tr><th>Day</th><th>dy</th><th>dx</th><th>|shift| px</th><th>Overlap fraction</th><th>Large shift</th><th>Old threshold exceeded</th><th>Registration channel</th><th>QC note</th></tr></thead><tbody><tr class=""><td>8</td><td>0.0</td><td>0.0</td><td>0.0</td><td>1.000</td><td>no</td><td>no</td><td>488nm Binned</td><td>reference_timepoint</td></tr><tr class=""><td>12</td><td>36.6</td><td>0.0</td><td>36.6</td><td>0.987</td><td>no</td><td>no</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel</td></tr><tr class="warning-large-shift review"><td>16</td><td>0.0</td><td>-930.2</td><td>930.2</td><td>0.676</td><td>yes</td><td>no</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel</td></tr><tr class="warning-large-shift warning-extreme-shift review"><td>20</td><td>1218.1</td><td>0.0</td><td>1218.1</td><td>0.575</td><td>yes</td><td>yes</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel;shift_exceeds_max_shift_pixels</td></tr><tr class=""><td>25</td><td>0.0</td><td>170.1</td><td>170.1</td><td>0.941</td><td>no</td><td>no</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel</td></tr><tr class="warning-large-shift warning-extreme-shift review"><td>29</td><td>0.0</td><td>1256.9</td><td>1256.9</td><td>0.562</td><td>yes</td><td>yes</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel;shift_exceeds_max_shift_pixels</td></tr><tr class="warning-large-shift warning-extreme-shift review"><td>32</td><td>0.0</td><td>1232.7</td><td>1232.7</td><td>0.570</td><td>yes</td><td>yes</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel;shift_exceeds_max_shift_pixels</td></tr><tr class="warning-large-shift review"><td>36</td><td>0.0</td><td>723.9</td><td>723.9</td><td>0.748</td><td>yes</td><td>no</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel</td></tr><tr class="warning-large-shift warning-extreme-shift review"><td>39</td><td>0.0</td><td>1316.8</td><td>1316.8</td><td>0.541</td><td>yes</td><td>yes</td><td>488nm Binned</td><td>phase_cross_correlation_on_stable_channel;shift_exceeds_max_shift_pixels</td></tr></tbody></table>
   <h2>Neuron / ROI Candidate Viewers</h2>
   <p>Each card is a separate neuron/ROI candidate. Manual identity status remains preliminary until reviewed.</p>
   <div class="roi-card-grid">
     <article class="roi-viewer-card">
       <div class="roi-card-header"><h3>ROI001</h3><strong>I06_ROI001</strong></div>
       <p>PLD3_mCherry_reporter_control</p>
+      <p class="mini-note">Inherited from parent well: check the well-level alignment warning before interpreting this ROI.</p>
       <img src="../roi_previews/I06/I06_ROI001.png" alt="I06_ROI001 preview montage" />
+      <p class="mini-note">ROI montage fallback: per-day ROI frame PNGs were not found in the dashboard-safe assets, so this card does not fake a video.</p>
       <dl>
         <dt>Manual identity</dt><dd>uncertain_identity</dd>
         <dt>Pass days</dt><dd>8, 12, 25</dd>
@@ -120,7 +113,9 @@
     <article class="roi-viewer-card">
       <div class="roi-card-header"><h3>ROI002</h3><strong>I06_ROI002</strong></div>
       <p>PLD3_mCherry_reporter_control</p>
+      <p class="mini-note">Inherited from parent well: check the well-level alignment warning before interpreting this ROI.</p>
       <img src="../roi_previews/I06/I06_ROI002.png" alt="I06_ROI002 preview montage" />
+      <p class="mini-note">ROI montage fallback: per-day ROI frame PNGs were not found in the dashboard-safe assets, so this card does not fake a video.</p>
       <dl>
         <dt>Manual identity</dt><dd>uncertain_identity</dd>
         <dt>Pass days</dt><dd>8, 12, 25</dd>
@@ -138,7 +133,9 @@
     <article class="roi-viewer-card">
       <div class="roi-card-header"><h3>ROI003</h3><strong>I06_ROI003</strong></div>
       <p>PLD3_mCherry_reporter_control</p>
+      <p class="mini-note">Inherited from parent well: check the well-level alignment warning before interpreting this ROI.</p>
       <img src="../roi_previews/I06/I06_ROI003.png" alt="I06_ROI003 preview montage" />
+      <p class="mini-note">ROI montage fallback: per-day ROI frame PNGs were not found in the dashboard-safe assets, so this card does not fake a video.</p>
       <dl>
         <dt>Manual identity</dt><dd>uncertain_identity</dd>
         <dt>Pass days</dt><dd>8, 12, 25</dd>
@@ -156,7 +153,9 @@
     <article class="roi-viewer-card">
       <div class="roi-card-header"><h3>ROI004</h3><strong>I06_ROI004</strong></div>
       <p>PLD3_mCherry_reporter_control</p>
+      <p class="mini-note">Inherited from parent well: check the well-level alignment warning before interpreting this ROI.</p>
       <img src="../roi_previews/I06/I06_ROI004.png" alt="I06_ROI004 preview montage" />
+      <p class="mini-note">ROI montage fallback: per-day ROI frame PNGs were not found in the dashboard-safe assets, so this card does not fake a video.</p>
       <dl>
         <dt>Manual identity</dt><dd>uncertain_identity</dd>
         <dt>Pass days</dt><dd>8, 12, 25</dd>
@@ -174,7 +173,9 @@
     <article class="roi-viewer-card">
       <div class="roi-card-header"><h3>ROI005</h3><strong>I06_ROI005</strong></div>
       <p>PLD3_mCherry_reporter_control</p>
+      <p class="mini-note">Inherited from parent well: check the well-level alignment warning before interpreting this ROI.</p>
       <img src="../roi_previews/I06/I06_ROI005.png" alt="I06_ROI005 preview montage" />
+      <p class="mini-note">ROI montage fallback: per-day ROI frame PNGs were not found in the dashboard-safe assets, so this card does not fake a video.</p>
       <dl>
         <dt>Manual identity</dt><dd>uncertain_identity</dd>
         <dt>Pass days</dt><dd>8, 12, 25</dd>
@@ -198,6 +199,7 @@
     <dt>ROI/metrics source</dt><dd>registered_common_overlap</dd>
   </dl>
 </section>
+<script src="../assets/viewer.js"></script>
 <!-- WELL_VIEWER_SECTION_END -->
 
           <section class="callout">

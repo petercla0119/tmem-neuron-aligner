@@ -7,7 +7,7 @@ This pilot follows the main experimental direction: align the same well across d
 - Well: `F05`
 - Condition: PLD3 + TMEM106B + mCherry
 - Days: `8`, `25`, `39`
-- Raw root: `LOCAL_USER_HOME/Documents/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1`
+- Raw root: `LOCAL_RAW_DATA`
 - Channels: `405nm Binned`, `561nm Binned`, `488nm Binned`
 - Registration channel: index `2`, `488nm Binned`
 - Phenotype channel: index `1`, `561nm Binned`
@@ -18,7 +18,7 @@ This pilot follows the main experimental direction: align the same well across d
 Generated outputs are intentionally outside Git:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/f05_longitudinal/
+LOCAL_INTERIM_OUTPUT/pilot/f05_longitudinal/
   F05_days_day8_day25_day39_raw_tcyx.ome.tif
   F05_days_day8_day25_day39_registered_tcyx.ome.tif
   F05_days_day8_day25_day39_registered_common_overlap_tcyx.ome.tif

@@ -4,7 +4,7 @@ This pilot is a preliminary image-level screen from one fluorescence frame per w
 
 ## Inputs
 
-- Raw root: `LOCAL_USER_HOME/Documents/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1`
+- Raw root: `LOCAL_RAW_DATA`
 - Day/acquisition folder: `20260305_171612_406`
 - Reporter-control well: `E05`, PLD3 + mCherry
 - Primary experimental well: `F05`, PLD3 + TMEM106B + mCherry
@@ -16,7 +16,7 @@ This pilot is a preliminary image-level screen from one fluorescence frame per w
 These generated image/result files are intentionally outside Git:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/ef05_mcherry/
+LOCAL_INTERIM_OUTPUT/pilot/ef05_mcherry/
   260305_day25_WellE05_ch1_preview.ome.tif
   260305_day25_WellF05_ch1_preview.ome.tif
 

@@ -6,7 +6,7 @@ This plan moves toward full TMEM106B mCherry-valid processing while preserving r
 
 - Raw ND2 files are read-only.
 - Raw ND2 files are never moved, renamed, deleted, overwritten, or committed.
-- Large generated outputs stay outside Git under `LOCAL_USER_HOME/Documents/TMEM106B_processed` and `LOCAL_USER_HOME/Documents/TMEM106B_interim`.
+- Large generated outputs stay outside Git under `LOCAL_PROCESSED_OUTPUT` and `LOCAL_INTERIM_OUTPUT`.
 - Processing runs by well/day batches, not as one giant in-memory job.
 - `--resume` skips completed outputs by default.
 - `--overwrite false` is the default planning mode.
