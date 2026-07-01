@@ -40,15 +40,34 @@
         
 <!-- OVERLAP_ONLY_ROI_SECTION_START -->
 <section>
-  <h2>Overlap-Only ROI Source</h2>
+  <p><a href="../../wells/N12.html">Back to well viewer</a></p>
+  <h2>ROI Candidate Review Viewer</h2>
+  <p class="caution">This ROI is a candidate neuron track, not a confirmed same-neuron identity until manually reviewed.</p>
   <p>This ROI candidate was generated from the overlap-only common-overlap stack when pass5 source metadata points to <code>registered_common_overlap</code>.</p>
+  <figure class="roi-detail-preview">
+    <img src="../../roi_previews/N12/N12_ROI005.png" alt="N12_ROI005 preview montage" />
+    <figcaption>Montage fallback. Per-day ROI frame PNGs were not found in the dashboard-safe assets, so no ROI video is shown.</figcaption>
+  </figure>
   <dl>
+    <dt>Parent well</dt><dd>N12</dd>
+    <dt>ROI ID</dt><dd>N12_ROI005</dd>
+    <dt>Condition</dt><dd>PLD3_TMEM106B_mCherry_primary</dd>
+    <dt>Manual identity</dt><dd>uncertain_identity</dd>
+    <dt>Review status options</dt><dd>confirmed_same_neuron, uncertain_identity, lost_or_dead, poor_registration, exclude</dd>
     <dt>Output level</dt><dd>overlap_only_analysis</dd>
+    <dt>Overlap source label</dt><dd>overlap-only/common-overlap source</dd>
     <dt>Well retained overlap</dt><dd>52.6%</dd>
+    <dt>Inherited alignment QC</dt><dd>manual_alignment_needed</dd>
     <dt>Full-registered crop box</dt><dd>x=454:1964, y=0:2868</dd>
     <dt>Traceability</dt><dd>Overlap crop is stored in registered-frame coordinates. Per-day original-space mapping requires applying the inverse registration shift for each day.</dd>
+    <dt>mCherry summary</dt><dd>puncta 8.14; punctate fraction 0.158; diffuse/punctate 6.27</dd>
+    <dt>Colocalization summary</dt><dd>Pearson 0.113; Manders A-in-B 0.22; B-in-A 0.0471</dd>
+    <dt>Warnings</dt><dd>None recorded</dd>
   </dl>
+  <p><strong>Review instruction:</strong> confirm same-neuron identity before biological interpretation; leave uncertain candidates as <code>uncertain_identity</code> or mark poor-registration/exclude in the working review CSV.</p>
+  <p><a href="../../wells/N12.html">Back to well viewer</a></p>
 </section>
+<script src="../../assets/viewer.js"></script>
 <!-- OVERLAP_ONLY_ROI_SECTION_END -->
 
 </body>

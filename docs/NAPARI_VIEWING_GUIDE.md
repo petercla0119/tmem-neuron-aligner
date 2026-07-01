@@ -29,19 +29,19 @@ open_in_napari("reports/260213_pilot_20260623_125859/single_neuron_examples/regi
 Raw selected preview:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/.../*raw_tcyx.ome.tif
+LOCAL_INTERIM_OUTPUT/pilot/.../*raw_tcyx.ome.tif
 ```
 
 Registered full-frame stack:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/.../*registered_tcyx.ome.tif
+LOCAL_INTERIM_OUTPUT/pilot/.../*registered_tcyx.ome.tif
 ```
 
 Common-overlap stack:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim/pilot/.../*registered_common_overlap_tcyx.ome.tif
+LOCAL_INTERIM_OUTPUT/pilot/.../*registered_common_overlap_tcyx.ome.tif
 ```
 
 Neuron-centered ROI stack:

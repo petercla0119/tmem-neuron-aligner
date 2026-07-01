@@ -13,14 +13,14 @@ LOCAL_USER_HOME/Documents/tmem_neuron_aligner
 Raw data root:
 
 ```text
-LOCAL_USER_HOME/Documents/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1
+LOCAL_RAW_DATA
 ```
 
 Intermediate and processed output roots:
 
 ```text
-LOCAL_USER_HOME/Documents/TMEM106B_interim
-LOCAL_USER_HOME/Documents/TMEM106B_processed
+LOCAL_INTERIM_OUTPUT
+LOCAL_PROCESSED_OUTPUT
 ```
 
 ## Current Structure
@@ -99,7 +99,7 @@ Risk areas:
 
 `.gitignore` excludes ND2, TIFF/OME-TIFF, GIF, MP4/MOV, OME-Zarr/Zarr, raw/interim/processed data folders, dashboard symlinks, Python caches, and editor files.
 
-Do not commit raw ND2 files or large generated microscopy outputs. Keep full-size processed outputs in `LOCAL_USER_HOME/Documents/TMEM106B_processed` or a future shared lab results folder.
+Do not commit raw ND2 files or large generated microscopy outputs. Keep full-size processed outputs in `LOCAL_PROCESSED_OUTPUT` or a future shared lab results folder.
 
 ## Complete vs Prototype
 
