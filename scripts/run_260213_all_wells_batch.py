@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -60,8 +61,77 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-sites", type=int, default=1)
     parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
     parser.add_argument("--limit-wells", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=1, help="Parallel workers (default 1 = sequential).")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
+
+
+def _process_one_well(
+    well: str,
+    rows: list[dict[str, Any]],
+    days: list[int],
+    channels: list[str],
+    max_sites: int,
+    max_read_bytes: int,
+) -> dict[str, Any]:
+    try:
+        if len(rows) != len(days):
+            raise ValueError(f"Expected days {days}, found {[row['day'] for row in rows]}")
+        loaded = [load_nd2_cyx(row["path"], max_sites, max_read_bytes) for row in rows]
+        channel_names = loaded[0]["channel_names"]
+        alignment_index = choose_channel_index(channel_names, channels[0])
+        mcherry_index = choose_channel_index(channel_names, channels[1])
+        raw_stack = np.stack([item["array"] for item in loaded], axis=0)
+        registered, well_qc, common_crop = register_stack(
+            raw_stack,
+            well=well,
+            rows=rows,
+            alignment_channel_index=alignment_index,
+            alignment_channel_label=channel_names[alignment_index],
+        )
+        condition = condition_for_well(well)
+        for row in well_qc:
+            row["condition"] = condition
+            row["row"] = well[0]
+            row["column"] = well[1:]
+            row["common_crop"] = str(common_crop)
+
+        metrics = None
+        if has_mcherry_reporter(well):
+            common = crop_tcyx(registered, common_crop)
+            metadata_rows = [
+                {
+                    "well": well,
+                    "row": well[0],
+                    "column": well[1:],
+                    "condition": condition,
+                    "site_fov": "site0",
+                    "timepoint_day": row["day"],
+                    "file_name": row["path"].name,
+                    "mcherry_channel": channel_names[mcherry_index],
+                    "registration_channel": channel_names[alignment_index],
+                }
+                for row in rows
+            ]
+            metrics = quantify_mcherry_timeseries(
+                common[:, mcherry_index],
+                mask_stack=common[:, alignment_index],
+                metadata_rows=metadata_rows,
+            )
+        return {"qc": well_qc, "metrics": metrics, "error": None}
+    except Exception as exc:
+        return {
+            "qc": [],
+            "metrics": None,
+            "error": {
+                "well": well,
+                "row": well[0],
+                "column": well[1:],
+                "condition": condition_for_well(well),
+                "error": repr(exc),
+                "days_requested": "|".join(map(str, days)),
+            },
+        }
 
 
 def main() -> None:
@@ -87,65 +157,42 @@ def main() -> None:
     failure_rows: list[dict[str, Any]] = []
 
     total = len(selected)
-    for index, (well, rows) in enumerate(selected.items(), start=1):
-        print(f"[{index}/{total}] {well} loading {len(rows)} days", flush=True)
-        try:
-            if len(rows) != len(args.days):
-                raise ValueError(f"Expected days {args.days}, found {[row['day'] for row in rows]}")
-            loaded = [load_nd2_cyx(row["path"], args.max_sites, args.max_read_bytes) for row in rows]
-            channel_names = loaded[0]["channel_names"]
-            alignment_index = choose_channel_index(channel_names, args.channels[0])
-            mcherry_index = choose_channel_index(channel_names, args.channels[1])
-            raw_stack = np.stack([item["array"] for item in loaded], axis=0)
-            registered, well_qc, common_crop = register_stack(
-                raw_stack,
-                well=well,
-                rows=rows,
-                alignment_channel_index=alignment_index,
-                alignment_channel_label=channel_names[alignment_index],
-            )
-            condition = condition_for_well(well)
-            for row in well_qc:
-                row["condition"] = condition
-                row["row"] = well[0]
-                row["column"] = well[1:]
-                row["common_crop"] = str(common_crop)
-            qc_rows.extend(well_qc)
+    well_items = list(selected.items())
 
-            if has_mcherry_reporter(well):
-                common = crop_tcyx(registered, common_crop)
-                metadata_rows = [
-                    {
-                        "well": well,
-                        "row": well[0],
-                        "column": well[1:],
-                        "condition": condition,
-                        "site_fov": "site0",
-                        "timepoint_day": row["day"],
-                        "file_name": row["path"].name,
-                        "mcherry_channel": channel_names[mcherry_index],
-                        "registration_channel": channel_names[alignment_index],
-                    }
-                    for row in rows
-                ]
-                metrics = quantify_mcherry_timeseries(
-                    common[:, mcherry_index],
-                    mask_stack=common[:, alignment_index],
-                    metadata_rows=metadata_rows,
-                )
-                metric_tables.append(metrics)
-        except Exception as exc:
-            failure_rows.append(
-                {
-                    "well": well,
-                    "row": well[0],
-                    "column": well[1:],
-                    "condition": condition_for_well(well),
-                    "error": repr(exc),
-                    "days_requested": "|".join(map(str, args.days)),
-                }
+    if args.workers > 1:
+        with ProcessPoolExecutor(max_workers=args.workers) as pool:
+            futures = {
+                pool.submit(
+                    _process_one_well, well, rows, args.days, args.channels,
+                    args.max_sites, args.max_read_bytes,
+                ): (idx, well)
+                for idx, (well, rows) in enumerate(well_items, start=1)
+            }
+            for future in as_completed(futures):
+                idx, well = futures[future]
+                result = future.result()
+                print(f"[{idx}/{total}] {well} done", flush=True)
+                if result["error"]:
+                    failure_rows.append(result["error"])
+                    print(f"  failed {well}: {result['error']['error']}", flush=True)
+                else:
+                    qc_rows.extend(result["qc"])
+                    if result["metrics"] is not None:
+                        metric_tables.append(result["metrics"])
+    else:
+        for index, (well, rows) in enumerate(well_items, start=1):
+            print(f"[{index}/{total}] {well} loading {len(rows)} days", flush=True)
+            result = _process_one_well(
+                well, rows, args.days, args.channels,
+                args.max_sites, args.max_read_bytes,
             )
-            print(f"  failed {well}: {exc}", flush=True)
+            if result["error"]:
+                failure_rows.append(result["error"])
+                print(f"  failed {well}: {result['error']['error']}", flush=True)
+            else:
+                qc_rows.extend(result["qc"])
+                if result["metrics"] is not None:
+                    metric_tables.append(result["metrics"])
 
     qc = pd.DataFrame(qc_rows)
     failures = pd.DataFrame(
