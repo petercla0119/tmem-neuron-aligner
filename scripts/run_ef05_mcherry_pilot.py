@@ -21,11 +21,11 @@ from tmem_align.quantify import quantify_puncta_vs_diffuse
 
 
 DEFAULT_RAW_ROOT = Path(
-    "/Users/makennarodriguez/Documents/"
+    "/Users/pmihack/claire/tmem_2026/data/"
     "260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1"
 )
-DEFAULT_INTERIM_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_interim")
-DEFAULT_PROCESSED_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_processed")
+DEFAULT_INTERIM_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_interim")
+DEFAULT_PROCESSED_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_processed")
 
 PILOT_FILES = {
     "E05": {

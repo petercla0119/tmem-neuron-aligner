@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -50,7 +51,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
+    parser.add_argument("--workers", type=int, default=1, help="Parallel workers for per-well processing (default 1 = sequential).")
     return parser.parse_args()
+
+
+def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
+    well, rows, channels, max_sites, max_read_bytes = args_tuple
+    loaded = [load_nd2_cyx(row["path"], max_sites, max_read_bytes) for row in rows]
+    channel_names = loaded[0]["channel_names"]
+    alignment_index = choose_channel_index(channel_names, channels[0])
+    mcherry_index = choose_channel_index(channel_names, channels[1])
+    raw_stack = np.stack([item["array"] for item in loaded], axis=0)
+    registered, qc_rows, common_crop = register_stack(
+        raw_stack,
+        well=well,
+        rows=rows,
+        alignment_channel_index=alignment_index,
+        alignment_channel_label=channel_names[alignment_index],
+    )
+    common = crop_tcyx(registered, common_crop)
+    metadata_rows = [
+        {
+            "well": well,
+            "condition": condition_for_well(well),
+            "site_fov": "site0",
+            "timepoint_day": row["day"],
+            "file_name": row["path"].name,
+            "mcherry_channel": channel_names[mcherry_index],
+            "registration_channel": channel_names[alignment_index],
+        }
+        for row in rows
+    ]
+    metrics = quantify_mcherry_timeseries(
+        common[:, mcherry_index],
+        mask_stack=common[:, alignment_index],
+        metadata_rows=metadata_rows,
+    )
+    return {"well": well, "common": common, "crop": common_crop, "qc": qc_rows, "metrics": metrics}
 
 
 def main() -> None:
@@ -85,48 +122,30 @@ def main() -> None:
     stacks: dict[str, np.ndarray] = {}
     crops: dict[str, dict[str, int]] = {}
 
-    for well in wells:
-        loaded = [load_nd2_cyx(row["path"], args.max_sites, args.max_read_bytes) for row in selected[well]]
-        channel_names = loaded[0]["channel_names"]
-        alignment_index = choose_channel_index(channel_names, args.channels[0])
-        mcherry_index = choose_channel_index(channel_names, args.channels[1])
-        raw_stack = np.stack([item["array"] for item in loaded], axis=0)  # TCYX
-        registered, qc_rows, common_crop = register_stack(
-            raw_stack,
-            well=well,
-            rows=selected[well],
-            alignment_channel_index=alignment_index,
-            alignment_channel_label=channel_names[alignment_index],
-        )
-        common = crop_tcyx(registered, common_crop)
-        stacks[well] = common
-        crops[well] = common_crop
-        all_qc.extend(qc_rows)
+    well_args = [
+        (well, selected[well], args.channels, args.max_sites, args.max_read_bytes)
+        for well in wells
+    ]
+
+    if args.workers > 1 and len(wells) > 1:
+        with ProcessPoolExecutor(max_workers=min(args.workers, len(wells))) as pool:
+            results = list(pool.map(_process_one_well_pilot, well_args))
+    else:
+        results = [_process_one_well_pilot(wa) for wa in well_args]
+
+    for result in results:
+        well = result["well"]
+        stacks[well] = result["common"]
+        crops[well] = result["crop"]
+        all_qc.extend(result["qc"])
+        all_metrics.append(result["metrics"])
         tif.imwrite(
             registered_dir / f"{well}_registered_common_overlap_tcyx.ome.tif",
-            common,
+            result["common"],
             photometric="minisblack",
             metadata={"axes": "TCYX"},
             ome=True,
         )
-        metadata_rows = [
-            {
-                "well": well,
-                "condition": condition_for_well(well),
-                "site_fov": "site0",
-                "timepoint_day": row["day"],
-                "file_name": row["path"].name,
-                "mcherry_channel": channel_names[mcherry_index],
-                "registration_channel": channel_names[alignment_index],
-            }
-            for row in selected[well]
-        ]
-        metrics = quantify_mcherry_timeseries(
-            common[:, mcherry_index],
-            mask_stack=common[:, alignment_index],
-            metadata_rows=metadata_rows,
-        )
-        all_metrics.append(metrics)
 
     qc = pd.DataFrame(all_qc)
     qc_path = output / "registration_qc.csv"

@@ -16,8 +16,8 @@ import pandas as pd
 from tmem_align.quantify import quantify_puncta_vs_diffuse_roi
 
 
-DEFAULT_INTERIM_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_interim")
-DEFAULT_PROCESSED_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_processed")
+DEFAULT_INTERIM_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_interim")
+DEFAULT_PROCESSED_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_processed")
 DEFAULT_COLUMNS = ["05", "06", "07"]
 DEFAULT_ROWS = ["E", "F", "I", "J", "M", "N"]
 

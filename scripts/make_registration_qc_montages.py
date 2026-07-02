@@ -16,8 +16,8 @@ import pandas as pd
 import tifffile as tif
 
 
-DEFAULT_INTERIM_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_interim")
-DEFAULT_PROCESSED_ROOT = Path("/Users/makennarodriguez/Documents/TMEM106B_processed")
+DEFAULT_INTERIM_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_interim")
+DEFAULT_PROCESSED_ROOT = Path("/Users/pmihack/claire/tmem_2026/data/TMEM106B_processed")
 DEFAULT_WELLS = ["E05", "F05", "I05", "J05", "M05", "N05"]
 
 

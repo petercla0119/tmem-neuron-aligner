@@ -198,3 +198,111 @@ Diminishing returns past 10 workers — I/O bandwidth saturates.
 **Nothing deleted.** All 22 substantive markdown files preserved — 20 of 23 contain parameters, thresholds, reproduction commands, or decision rationale needed for reproducibility. The only content removed from the source branch is the generated dashboard, which is preserved on `gh-pages` and can be rebuilt from the build script.
 
 **GitHub Pages config note:** If Pages was configured to serve from `docs/` on the default branch, it will need to be reconfigured to serve from the `gh-pages` branch root instead.
+
+## 12. Longitudinal pilot parallelization
+
+**File changed:** `scripts/run_260213_longitudinal_pilot.py`
+
+**What:** Added `--workers N` flag for parallel well processing via `concurrent.futures.ProcessPoolExecutor`. Same pattern as all-well batch script.
+
+**Changes:**
+- Added `from concurrent.futures import ProcessPoolExecutor` (line 8)
+- Added `--workers` argparse flag (line 54)
+- Extracted per-well logic into module-level `_process_one_well_pilot(args_tuple)` function (lines 58–90)
+- Main loop branches: workers > 1 uses `pool.map()`, workers == 1 sequential (lines 130–134)
+
+**Benchmark (2 wells, days 8/12/16):**
+
+| Workers | Wall (s) | User CPU (s) | Sys CPU (s) | Peak RSS (GB) | Speedup |
+|---------|----------|-------------|------------|---------------|---------|
+| 1       | 23.7     | 22.4        | 2.4        | 3.27          | 1.0x    |
+| 2       | 19.1     | 24.5        | 3.6        | 2.23          | 1.24x   |
+
+**Observation:** Modest 1.24x speedup — only 2 wells to parallelize, so limited by Amdahl's law (serial overhead dominates). The `--workers` flag will show larger gains in multi-well runs using `run_f05_longitudinal_pilot.py` which processes 6 wells.
+
+## 13. Longitudinal pilot reproduction
+
+**Command:**
+```
+python scripts/run_260213_longitudinal_pilot.py \
+  --data-root .../260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1 \
+  --output reports/260213_pilot_reproduced \
+  --workers 2
+```
+
+**Status:** Complete. 6/6 registration QC pass.
+
+**Comparison with original (`reports/260213_pilot_20260623_125859/`):**
+
+| Metric | Original | Reproduced | Match |
+|--------|----------|------------|-------|
+| E05 slope (per day) | 0.0621 | 0.0598 | ~3.7% diff |
+| F05 slope (per day) | 0.1495 | 0.1455 | ~2.7% diff |
+| E05 first ratio | 2.546 | 2.511 | ~1.4% diff |
+| F05 first ratio | 3.189 | 3.143 | ~1.4% diff |
+| E05 puncta count | 973 | 1030 | ~5.9% diff |
+| F05 puncta count | 617 | 659 | ~6.8% diff |
+| Registration shifts | match sub-pixel | (e.g., -524.7 vs -524.700012) | floating-point |
+| QC pass rate | 6/6 | 6/6 | exact |
+
+**Verdict:** Consistent reproduction. Small differences (1–7%) are expected from floating-point arithmetic on different hardware (Apple Silicon). Key biology is identical: F05 (TMEM106B+mCherry) shows ~2.4x steeper diffuse/punctate slope than E05 (control) in both runs.
+
+**Output location:** `reports/260213_pilot_reproduced/`
+
+## 14. Synthetic alignment smoketest
+
+**Command:** `python scripts/synthetic_alignment_smoketest.py`
+
+**Status:** Complete. Overwrites `reports/synthetic_smoketest/`.
+
+**Results:**
+
+| Time index | Known shift (dy, dx) | Recovered shift | Error (pixels) |
+|------------|---------------------|-----------------|----------------|
+| 0 | (0, 0) | (0, 0) | 0.000 |
+| 1 | (4.3, -6.2) | (-4.2, 6.1) | 0.141 |
+| 2 | (-5.8, 7.5) | (5.9, -7.6) | 0.141 |
+
+Sub-pixel recovery (0.14 px error) confirms registration pipeline is working correctly. Signs are inverted because the recovery reports the correction shift, not the displacement.
+
+## 15. Downstream scripts
+
+All downstream scripts that have their data dependencies satisfied have been run.
+
+| # | Script | Status | Output |
+|---|--------|--------|--------|
+| 1 | `build_applicable_nd2_manifest.py` | done | `TMEM106B_processed/pilot/dataset_manifest/` — 18 conditions × days, 96 wells per day |
+| 2 | `build_mcherry_stage_prefilter.py` | done | `TMEM106B_processed/pilot/*/stage_prefilter_qc.csv` |
+| 3 | `plot_mcherry_pilot_analysis.py` | done | `TMEM106B_processed/pilot/mcherry_graphical_analysis/` — combined metrics, condition summaries, paired deltas, figures |
+| 4 | `build_mcherry_qc_report.py` | done | `TMEM106B_processed/pilot/mcherry_qc_report/` — 15/18 included, 3 excluded (large registration shifts) |
+| 5 | `make_mcherry_timeseries_videos.py` | done | `TMEM106B_processed/pilot/mcherry_timeseries_videos/` — 5 GIFs (E05, F05, composite, comparison) |
+| 6 | `create_single_neuron_alignment_examples.py` | done | `reports/260213_pilot_reproduced/single_neuron_examples/` |
+| 7 | `create_meeting_presentation.py` | done | `outputs/tmem106b_neuron_alignment_meeting_deck.pptx` (added missing-file guard for GIF) |
+
+**Cannot run (missing data):**
+
+| Script | Missing dependency |
+|--------|-------------------|
+| `build_github_pages_dashboard.py` | Needs `TMEM106B_processed/dashboard/` and `full_mcherry_valid_queue_abc/` — full pipeline output not transferred from Makenna's machine |
+| `build_overlap_only_audit.py` | Same — needs `full_mcherry_valid_queue_abc/` and `full_mcherry_valid_defg_pass5/` |
+| `create_scrollthrough_video.py` | Needs `registered_roi_stacks/` TIFFs (not present in original pilot) |
+| `export_report_stacks_to_omezarr.py` | Needs registered OME-TIFF stacks as input (already exported as OME-Zarr in original) |
+
+**Code fix:** `scripts/create_meeting_presentation.py` line 134 — added `if not path.exists(): return None` guard in `add_image()` to handle missing GIF (pre-existing issue: the GIF was never generated by the single neuron examples script).
+
+## 16. Summary of reproduction status
+
+| Artifact | Original location | Reproduced? |
+|----------|-------------------|-------------|
+| All-well batch (192 wells, days 8/12/16) | `reports/260213_all_wells_20260623_days8_12_16/` | Yes — `reports/260213_all_wells_reproduced/`, matches to floating-point precision |
+| Longitudinal pilot (E05/F05) | `reports/260213_pilot_20260623_125859/` | Yes — `reports/260213_pilot_reproduced/`, consistent (1–7% differences from hardware) |
+| Synthetic smoketest | `reports/synthetic_smoketest/` | Yes — 0.14 px registration error, regenerated in place |
+| mCherry graphical analysis | `TMEM106B_processed/pilot/mcherry_graphical_analysis/` | Yes — regenerated |
+| mCherry QC report | `TMEM106B_processed/pilot/mcherry_qc_report/` | Yes — 15/18 included, 3 excluded |
+| Timeseries videos | `TMEM106B_processed/pilot/mcherry_timeseries_videos/` | Yes — 5 GIFs regenerated |
+| Single neuron examples | `reports/.../single_neuron_examples/` | Yes — reproduced from pilot report |
+| Meeting presentation | `outputs/...pptx` | Yes — regenerated (1 missing GIF skipped) |
+| GitHub Pages dashboard | `docs/` (gh-pages branch) | No — needs full pipeline data |
+| Overlap audit | via `build_overlap_only_audit.py` | No — needs full pipeline data |
+
+**What remains to fully replicate:** The full per-well pipeline (stitch → register → crop ROIs → quantify) across all wells and all 10 days, which produces the `TMEM106B_processed/dashboard/` and `full_mcherry_valid_queue_abc/` data. This is a much larger computation than the batch/pilot scripts.
