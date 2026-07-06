@@ -21,13 +21,13 @@ from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
 
 from run_260213_longitudinal_pilot import (
     choose_channel_index,
-    crop_tcyx,
     infer_channel_string,
     infer_day,
     infer_sequence,
     load_nd2_cyx,
     register_stack,
 )
+from tmem_align.registration_qc import crop_tcyx
 
 
 ROW_CONDITIONS = {

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 from concurrent.futures import ProcessPoolExecutor
@@ -20,11 +19,18 @@ import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
 import tifffile as tif
-from scipy.ndimage import gaussian_filter
 from skimage.registration import phase_cross_correlation
 
 from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
 from tmem_align.register import apply_shift
+from tmem_align.registration_qc import (
+    classify_registration_qc,
+    common_overlap_crop,
+    correlation,
+    crop_tcyx,
+    overlap_fraction,
+    robust_registration_image,
+)
 
 
 CONDITIONS = {
@@ -318,7 +324,7 @@ def register_stack(
                 "post_registration_correlation": correlation(reference, shifted_channel),
                 "overlap_fraction": overlap,
                 "registration_error": float(error),
-                "qc_pass": bool(overlap > 0.5 and abs(dy) < stack.shape[-2] * 0.5 and abs(dx) < stack.shape[-1] * 0.5),
+                **classify_registration_qc(overlap, dy, dx, stack.shape[-2], stack.shape[-1]),
                 "qc_note": "phase_cross_correlation_on_stable_channel",
             }
         )
@@ -326,29 +332,6 @@ def register_stack(
     registered_stack = np.stack(registered, axis=0)
     return registered_stack, qc_rows, common_overlap_crop(stack.shape[-2:], shifts)
 
-
-def robust_registration_image(frame: np.ndarray) -> np.ndarray:
-    image = np.asarray(frame, dtype=np.float32)
-    lo, hi = np.percentile(image, [5, 99])
-    if hi <= lo:
-        return image
-    image = np.clip((image - lo) / (hi - lo), 0, 1)
-    return gaussian_filter(image, sigma=1.0)
-
-
-def common_overlap_crop(shape: tuple[int, int], shifts: list[tuple[float, float]]) -> dict[str, int]:
-    height, width = shape
-    top = max(int(np.ceil(max(dy, 0))) for dy, _ in shifts)
-    bottom = min(height + int(np.floor(min(dy, 0))) for dy, _ in shifts)
-    left = max(int(np.ceil(max(dx, 0))) for _, dx in shifts)
-    right = min(width + int(np.floor(min(dx, 0))) for _, dx in shifts)
-    if top >= bottom or left >= right:
-        return {"y_start": 0, "y_stop": height, "x_start": 0, "x_stop": width}
-    return {"y_start": top, "y_stop": bottom, "x_start": left, "x_stop": right}
-
-
-def crop_tcyx(stack: np.ndarray, crop: dict[str, int]) -> np.ndarray:
-    return stack[:, :, crop["y_start"] : crop["y_stop"], crop["x_start"] : crop["x_stop"]]
 
 
 def build_summary_stats(measurements: pd.DataFrame, qc: pd.DataFrame) -> pd.DataFrame:
@@ -678,22 +661,6 @@ def infer_sequence(name: str) -> str:
 
 def condition_for_well(well: str) -> str:
     return CONDITIONS.get(well[0].upper(), "unknown")
-
-
-def overlap_fraction(shape: tuple[int, int], shift: tuple[float, float]) -> float:
-    height, width = shape
-    dy, dx = shift
-    overlap_h = max(0.0, height - abs(dy))
-    overlap_w = max(0.0, width - abs(dx))
-    return float((overlap_h * overlap_w) / (height * width))
-
-
-def correlation(a: np.ndarray, b: np.ndarray) -> float:
-    av = np.asarray(a, dtype=np.float32).ravel()
-    bv = np.asarray(b, dtype=np.float32).ravel()
-    if av.std() == 0 or bv.std() == 0:
-        return 0.0
-    return float(np.corrcoef(av, bv)[0, 1])
 
 
 if __name__ == "__main__":
