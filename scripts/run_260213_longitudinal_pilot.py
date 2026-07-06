@@ -19,10 +19,8 @@ import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
 import tifffile as tif
-from skimage.registration import phase_cross_correlation
-
 from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
-from tmem_align.register import apply_shift
+from tmem_align.register import apply_shift, register_translation
 from tmem_align.registration_qc import (
     classify_registration_qc,
     common_overlap_crop,
@@ -306,8 +304,9 @@ def register_stack(
 
     for time_index in range(1, stack.shape[0]):
         moving = robust_registration_image(stack[time_index, alignment_channel_index])
-        shift, error, _ = phase_cross_correlation(reference, moving, upsample_factor=10)
-        dy, dx = float(shift[0]), float(shift[1])
+        _, (dy, dx), error = register_translation(
+            reference, moving, upsample_factor=10, robust_preprocess=False,
+        )
         shifted_channel = apply_shift(moving, dy, dx)
         registered.append(apply_shift(stack[time_index], dy, dx))
         shifts.append((dy, dx))
