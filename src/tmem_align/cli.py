@@ -146,9 +146,9 @@ def register_well_command(config_path: str, plate: str, well: str, reference_day
         out = registered_root / f"{row['day']}_registered.ome.tif"
         if row["day"] == reference_day:
             # Registering reference to itself keeps naming consistent.
-            ref_out, shift = register_file_to_reference(ref_path, ref_path, out, 1, 0)
+            ref_out, shift, _ = register_file_to_reference(ref_path, ref_path, out, 1, 0)
         else:
-            ref_out, shift = register_file_to_reference(
+            ref_out, shift, _ = register_file_to_reference(
                 ref_path,
                 moving,
                 out,

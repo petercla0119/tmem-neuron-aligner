@@ -254,7 +254,7 @@ def register_tcyx_stack(
     registered = [stack[0]]
     shifts = [(0.0, 0.0)]
     for time_index in range(1, stack.shape[0]):
-        _, (dy, dx) = register_translation(
+        _, (dy, dx), _ = register_translation(
             reference,
             stack[time_index, alignment_channel],
             upsample_factor=10,
