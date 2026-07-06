@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -189,7 +190,7 @@ def detect_puncta(
 
 
 def _remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
-    return morphology.remove_small_objects(mask, min_size=min_size)
+    return morphology.remove_small_objects(mask, max_size=min_size - 1)
 
 
 def quantify_mcherry_from_file(
@@ -198,8 +199,6 @@ def quantify_mcherry_from_file(
     config: MCherryMetricConfig | None = None,
 ) -> pd.DataFrame:
     """Convenience wrapper: read a TYX/TCYX file and quantify mCherry."""
-    from pathlib import Path
-
     from ..io import read_image
 
     arr = np.squeeze(np.asarray(read_image(timeseries_path)))
