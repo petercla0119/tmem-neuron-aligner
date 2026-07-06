@@ -189,10 +189,7 @@ def detect_puncta(
 
 
 def _remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
-    try:
-        return morphology.remove_small_objects(mask, max_size=min_size - 1)
-    except TypeError:
-        return morphology.remove_small_objects(mask, min_size=min_size)
+    return morphology.remove_small_objects(mask, min_size=min_size)
 
 
 def quantify_mcherry_from_file(

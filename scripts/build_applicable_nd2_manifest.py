@@ -84,7 +84,7 @@ def parse_filename(path: Path) -> dict[str, object]:
         "is_brightfield": is_brightfield,
         "condition": condition,
         "mcherry_valid": row in REPORTER_ROWS | PRIMARY_ROWS,
-        "safe_for_mcherry_puncta_diffusion": row in REPORTER_ROWS | PRIMARY_ROWS
+        "safe_for_mcherry_puncta_diffusion": (row in REPORTER_ROWS | PRIMARY_ROWS)
         and not is_brightfield,
     }
 
