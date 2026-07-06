@@ -7,7 +7,6 @@ import pandas as pd
 
 from .config import ensure_dirs, load_config, load_plate_map, load_roi_annotations, validate_config as validate
 from .export_zarr import export_ome_zarr
-from .quantify import quantify_puncta_vs_diffuse
 from .register import register_file_to_reference
 from .roi import build_roi_timeseries, roi_from_table
 from .stitch import stitch_folder_to_ometiff
@@ -200,6 +199,11 @@ def make_roi_stack_command(config_path: str, plate: str, well: str, roi_id: str)
 @click.option("--roi-id", required=True)
 @click.option("--phenotype-channel-index", type=int, default=None)
 def quantify_command(config_path: str, plate: str, well: str, roi_id: str, phenotype_channel_index: int | None) -> None:
+    import numpy as np
+
+    from .analysis.mcherry_metrics import MCherryMetricConfig, quantify_mcherry_timeseries
+    from .io import read_image
+
     cfg = load_config(config_path)
     roi_path = cfg.resolve("paths.interim_root") / "neuron_rois" / plate / f"Well_{well}" / roi_id / f"{roi_id}_registered_timeseries.ome.tif"
     if not roi_path.exists():
@@ -216,14 +220,24 @@ def quantify_command(config_path: str, plate: str, well: str, roi_id: str, pheno
                 "mCherry puncta/diffusion analysis is not valid for this well. "
                 "Use E/F wells or correct the plate map."
             )
+
+    arr = np.asarray(read_image(roi_path))
+    arr = np.squeeze(arr)
+    if arr.ndim == 2:
+        arr = arr[np.newaxis, np.newaxis, :, :]
+    elif arr.ndim == 3:
+        arr = arr[:, np.newaxis, :, :]
+
+    ch = phenotype_channel_index if phenotype_channel_index is not None else 0
+    mcherry_stack = arr[:, ch, :, :]
+
     qcfg = cfg.raw["quantification"]
-    df = quantify_puncta_vs_diffuse(
-        roi_path,
-        phenotype_channel_index=phenotype_channel_index,
-        min_size_pixels=int(qcfg.get("puncta_min_size_pixels", 6)),
+    config = MCherryMetricConfig(
         background_percentile=float(qcfg.get("diffuse_percentile_background", 20)),
-        threshold_method=str(qcfg.get("puncta_threshold_method", "otsu")),
+        min_puncta_area=int(qcfg.get("puncta_min_size_pixels", 6)),
+        puncta_sigma_small=float(qcfg.get("puncta_sigma", 1.0)),
     )
+    df = quantify_mcherry_timeseries(mcherry_stack, config=config)
     out = cfg.resolve("paths.processed_root") / "measurements" / f"{plate}_Well_{well}_{roi_id}_measurements.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)

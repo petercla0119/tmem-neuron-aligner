@@ -195,6 +195,32 @@ def _remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
         return morphology.remove_small_objects(mask, min_size=min_size)
 
 
+def quantify_mcherry_from_file(
+    timeseries_path: str | Path,
+    phenotype_channel_index: int | None = None,
+    config: MCherryMetricConfig | None = None,
+) -> pd.DataFrame:
+    """Convenience wrapper: read a TYX/TCYX file and quantify mCherry."""
+    from pathlib import Path
+
+    from ..io import read_image
+
+    arr = np.squeeze(np.asarray(read_image(timeseries_path)))
+    if arr.ndim == 2:
+        mcherry = arr[np.newaxis, :, :]
+    elif arr.ndim == 3:
+        mcherry = arr
+    elif arr.ndim == 4:
+        ch = phenotype_channel_index if phenotype_channel_index is not None else 0
+        mcherry = arr[:, ch, :, :]
+    elif arr.ndim == 5:
+        ch = phenotype_channel_index if phenotype_channel_index is not None else 0
+        mcherry = arr[:, ch].max(axis=1)
+    else:
+        raise ValueError(f"Unsupported timeseries shape: {arr.shape}")
+    return quantify_mcherry_timeseries(mcherry, config=config)
+
+
 def _as_tyx(arr: np.ndarray) -> np.ndarray:
     squeezed = np.squeeze(np.asarray(arr))
     if squeezed.ndim == 2:

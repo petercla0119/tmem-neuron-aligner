@@ -19,7 +19,7 @@ import pandas as pd
 import tifffile as tif
 
 from tmem_align.nd2_tools import inspect_nd2
-from tmem_align.quantify import quantify_puncta_vs_diffuse
+from tmem_align.analysis.mcherry_metrics import quantify_mcherry_from_file
 from tmem_align.register import apply_shift, register_translation
 from tmem_align.stage_qc import (
     DEFAULT_STAGE_XY_THRESHOLD_UM,
@@ -290,7 +290,7 @@ def quantify_registered_mcherry(
     temp_path = output_csv.with_suffix(".mcherry_tmp.ome.tif")
     tif.imwrite(temp_path, registered_stack[:, mcherry_channel], photometric="minisblack", metadata={"axes": "TYX"}, ome=True)
     try:
-        metrics = quantify_puncta_vs_diffuse(temp_path)
+        metrics = quantify_mcherry_from_file(temp_path)
     finally:
         temp_path.unlink(missing_ok=True)
     metrics.insert(0, "day", [day for day, _ in paths])
