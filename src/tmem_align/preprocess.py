@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -30,14 +31,16 @@ def calculate_ic_field(
     rescale_field: bool = True,
     sample_fraction: float = 1.0,
     channel: int | None = None,
+    n_workers: int = 4,
 ) -> np.ndarray:
     """Calculate an illumination correction field from a collection of images.
 
     Computes the pixelwise average then applies median-filter smoothing, then
     optionally rescales so the minimum correction factor is 1.
 
-    For multi-channel images (CYX), either specify a channel index or the
-    function computes a per-channel IC field and returns shape (C, Y, X).
+    For multi-channel images (CYX), loads each image once and accumulates
+    all channels simultaneously (avoids redundant I/O). File-based images
+    are loaded in parallel using threads.
 
     Args:
         images: List of 2D/3D image arrays or file paths.
@@ -47,6 +50,7 @@ def calculate_ic_field(
         channel: If set, extract this channel from multi-channel images before
             computing the IC field (returns 2D). If None and images are
             multi-channel, computes per-channel IC fields (returns CYX).
+        n_workers: Thread pool size for parallel file loading. Default 4.
 
     Returns:
         IC field array — 2D (YX) or 3D (CYX) depending on input/channel arg.
@@ -58,39 +62,25 @@ def calculate_ic_field(
         k = max(1, int(len(images) * sample_fraction))
         images = random.sample(list(images), k)
 
+    n = len(images)
     first = _load_image(images[0])
 
-    # Multi-channel case: recurse per channel
+    # Multi-channel: accumulate all channels in one pass (no re-loading)
     if first.ndim == 3 and channel is None:
-        n_channels = first.shape[0]
-        return np.stack(
-            [calculate_ic_field(images, smooth=smooth, rescale_field=rescale_field,
-                                sample_fraction=1.0, channel=c)
-             for c in range(n_channels)],
-            axis=0,
+        accumulator = first.astype(np.float64) / n
+        for loaded in _iter_images(images[1:], n_workers):
+            accumulator += loaded.astype(np.float64) / n
+        return _smooth_and_rescale_multichannel(
+            accumulator.astype(np.uint16), smooth, rescale_field
         )
 
-    # Single channel computation
+    # Single channel
     first_2d = _extract_channel(first, channel)
-    accumulator = first_2d.astype(np.float64) / len(images)
-    for img in images[1:]:
-        loaded = _load_image(img)
-        accumulator += _extract_channel(loaded, channel).astype(np.float64) / len(images)
+    accumulator = first_2d.astype(np.float64) / n
+    for loaded in _iter_images(images[1:], n_workers):
+        accumulator += _extract_channel(loaded, channel).astype(np.float64) / n
 
-    avg = accumulator.astype(np.uint16)
-
-    if smooth is None:
-        smooth = int(np.sqrt((avg.shape[-1] * avg.shape[-2]) / (np.pi * 20)))
-
-    selem = morphology.disk(smooth)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        smoothed = skimage_median(avg, selem)
-
-    if rescale_field:
-        smoothed = _rescale_field(smoothed.astype(np.float64))
-
-    return smoothed
+    return _smooth_and_rescale_2d(accumulator.astype(np.uint16), smooth, rescale_field)
 
 
 def apply_ic_field(image: np.ndarray, ic_field: np.ndarray) -> np.ndarray:
@@ -262,6 +252,99 @@ def calculate_ic_field_for_plate(
 
 
 # ---------------------------------------------------------------------------
+# Timepoint-aware IC (one IC field per imaging session)
+# ---------------------------------------------------------------------------
+
+
+def calculate_ic_fields_by_timepoint(
+    plate_dir: str | Path,
+    sample_fraction: float = 0.25,
+    smooth: int | None = None,
+) -> dict[str, np.ndarray]:
+    """Calculate per-timepoint IC fields for a plate.
+
+    Expects plate_dir to contain subdirectories, one per timepoint/imaging
+    session. Each subdir should contain the raw images for that session.
+    Returns a dict keyed by timepoint directory name.
+
+    This is the standard approach in bioimage analysis: microscope illumination
+    drifts between sessions, so each timepoint needs its own IC field.
+
+    Args:
+        plate_dir: Top-level plate directory containing timepoint subdirs.
+        sample_fraction: Fraction of images to sample per timepoint.
+        smooth: Median filter disk radius. None for auto.
+
+    Returns:
+        Dict mapping timepoint dirname → IC field array (2D or CYX).
+    """
+    plate_path = Path(plate_dir)
+    timepoint_dirs = sorted(
+        d for d in plate_path.iterdir() if d.is_dir() and not d.name.startswith(".")
+    )
+    if not timepoint_dirs:
+        raise FileNotFoundError(f"No timepoint subdirectories in {plate_dir}")
+
+    ic_fields = {}
+    for tp_dir in timepoint_dirs:
+        images = find_images(tp_dir)
+        if not images:
+            continue
+        ic_fields[tp_dir.name] = calculate_ic_field(
+            images, smooth=smooth, sample_fraction=sample_fraction
+        )
+
+    if not ic_fields:
+        raise FileNotFoundError(f"No images found in any subdirectory of {plate_dir}")
+
+    return ic_fields
+
+
+def preprocess_with_lookup(
+    image_path: str | Path,
+    ic_fields: dict[str, np.ndarray],
+    background_radius: int | None = None,
+) -> np.ndarray:
+    """Load an image and preprocess with auto-selected IC field.
+
+    Resolves the correct IC field by matching the image's parent directory
+    name against the ic_fields dict keys (timepoint directory names).
+
+    Args:
+        image_path: Path to the image file.
+        ic_fields: Dict from calculate_ic_fields_by_timepoint().
+        background_radius: Rolling ball radius, or None to skip.
+
+    Returns:
+        Preprocessed uint16 image.
+
+    Raises:
+        KeyError: If no IC field found for the image's timepoint.
+    """
+    image_path = Path(image_path)
+    image = read_image(str(image_path))
+
+    # Walk up parents to find a matching timepoint key
+    ic_field = _resolve_ic_field(image_path, ic_fields)
+
+    return preprocess_image(image, ic_field=ic_field, background_radius=background_radius)
+
+
+def _resolve_ic_field(
+    image_path: Path, ic_fields: dict[str, np.ndarray]
+) -> np.ndarray:
+    """Find the IC field matching an image path's timepoint directory."""
+    path = Path(image_path)
+    for parent in [path.parent] + list(path.parents):
+        if parent.name in ic_fields:
+            return ic_fields[parent.name]
+    raise KeyError(
+        f"No IC field for image {image_path}. "
+        f"Parent dirs checked against keys: {list(ic_fields.keys())}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 
@@ -273,11 +356,47 @@ def _load_image(img) -> np.ndarray:
     return np.asarray(img)
 
 
+def _iter_images(images, n_workers: int):
+    """Yield loaded images, using threaded I/O for file paths."""
+    is_paths = images and isinstance(images[0], (str, Path))
+    if is_paths and n_workers > 1:
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            yield from pool.map(_load_image, images)
+    else:
+        for img in images:
+            yield _load_image(img)
+
+
 def _extract_channel(img: np.ndarray, channel: int | None) -> np.ndarray:
     """Extract a single channel from an image, or normalize to 2D."""
     if channel is not None and img.ndim >= 3:
         return img[channel]
     return normalize_to_2d(img)
+
+
+def _smooth_and_rescale_2d(
+    avg: np.ndarray, smooth: int | None, rescale_field: bool
+) -> np.ndarray:
+    """Apply median filter smoothing and optional rescaling to a 2D IC average."""
+    if smooth is None:
+        smooth = int(np.sqrt((avg.shape[-1] * avg.shape[-2]) / (np.pi * 20)))
+    selem = morphology.disk(smooth)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        smoothed = skimage_median(avg, selem)
+    if rescale_field:
+        smoothed = _rescale_field(smoothed.astype(np.float64))
+    return smoothed
+
+
+def _smooth_and_rescale_multichannel(
+    avg: np.ndarray, smooth: int | None, rescale_field: bool
+) -> np.ndarray:
+    """Apply smoothing/rescaling independently per channel."""
+    return np.stack(
+        [_smooth_and_rescale_2d(avg[c], smooth, rescale_field) for c in range(avg.shape[0])],
+        axis=0,
+    )
 
 
 def _rescale_field(field: np.ndarray) -> np.ndarray:
