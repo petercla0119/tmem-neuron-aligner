@@ -28,6 +28,7 @@ ruff format --check src/ tests/ scripts/
 # CLI (installed as tmem-align)
 tmem-align validate-config configs/my_experiment.yaml
 tmem-align inspect-nd2 /path/to/file.nd2
+tmem-align compute-ic-fields /path/to/plate_dir -o ic_fields.npz
 tmem-align stitch configs/my_experiment.yaml --plate Plate001 --well A01
 tmem-align register-well configs/my_experiment.yaml --plate Plate001 --well A01 --reference-day Day01
 tmem-align make-roi-stack configs/my_experiment.yaml --plate Plate001 --well A01 --roi-id Neuron001
