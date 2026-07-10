@@ -110,6 +110,78 @@ def build_manifest(
     return df
 
 
+def read_fov_positions(path: str | Path) -> list[dict[str, Any]]:
+    """Read per-FOV stage coordinates from a multi-position ND2 file."""
+    from .stage_qc import stage_coordinates_from_frame_metadata
+
+    nd2 = _require_nd2()
+    path = Path(path).expanduser().resolve()
+    with nd2.ND2File(path) as image:
+        sizes = {str(k): int(v) for k, v in image.sizes.items()}
+        n_positions = sizes.get("P", 1)
+        frames_per_position = 1
+        for axis in ("T", "C", "Z"):
+            frames_per_position *= sizes.get(axis, 1)
+
+        positions: list[dict[str, Any]] = []
+        for p in range(n_positions):
+            frame_idx = p * frames_per_position
+            try:
+                meta = image.frame_metadata(frame_idx)
+                coords = stage_coordinates_from_frame_metadata(meta)
+                positions.append({
+                    "position_index": p,
+                    "stage_x_um": coords["stage_x_um"],
+                    "stage_y_um": coords["stage_y_um"],
+                })
+            except Exception:
+                positions.append({
+                    "position_index": p,
+                    "stage_x_um": None,
+                    "stage_y_um": None,
+                })
+    return positions
+
+
+def read_fov_tile(
+    path: str | Path,
+    position: int,
+    channel: int = 0,
+    z_project: str = "max",
+    z_index: int | None = None,
+) -> np.ndarray:
+    """Extract a single FOV as a 2D array, handling Z-stacks."""
+    nd2 = _require_nd2()
+    path = Path(path).expanduser().resolve()
+    with nd2.ND2File(path) as image:
+        sizes = {str(k): int(v) for k, v in image.sizes.items()}
+        axis_order = list(sizes.keys())
+        selection: list[Any] = []
+        remaining: list[str] = []
+        requested = {"P": position, "C": channel}
+        if z_index is not None:
+            requested["Z"] = z_index
+        for axis in axis_order:
+            idx = requested.get(axis)
+            if idx is not None:
+                selection.append(idx)
+            else:
+                selection.append(slice(None))
+                remaining.append(axis)
+        data = image.to_dask()
+        arr = np.asarray(data[tuple(selection)].compute())
+
+    if z_index is None and "Z" in remaining:
+        z_ax = remaining.index("Z")
+        if z_project == "max":
+            arr = arr.max(axis=z_ax)
+        elif z_project == "mean":
+            arr = arr.mean(axis=z_ax).astype(arr.dtype)
+        else:
+            raise ValueError(f"Unknown z_project: {z_project}")
+    return np.squeeze(arr)
+
+
 def extract_nd2_selection(
     nd2_path: str | Path,
     output_path: str | Path,

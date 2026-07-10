@@ -10,7 +10,7 @@ from .export_zarr import export_ome_zarr
 from .quantify import quantify_puncta_vs_diffuse
 from .register import register_file_to_reference
 from .roi import build_roi_timeseries, roi_from_table
-from .stitch import stitch_folder_to_ometiff
+from .stitch import stitch_folder_to_ometiff, stitch_nd2
 from .nd2_tools import build_manifest, extract_nd2_selection, print_nd2_report
 
 
@@ -91,7 +91,10 @@ def validate_config_command(config_path: str) -> None:
 @click.argument("config_path")
 @click.option("--plate", required=True)
 @click.option("--well", required=True)
-def stitch_command(config_path: str, plate: str, well: str) -> None:
+@click.option("--method", type=click.Choice(["grid", "tile"]), default=None,
+              help="grid=nominal overlap, tile=stage coords + phase correlation. "
+              "Defaults to tile when use_stage_positions is true in config.")
+def stitch_command(config_path: str, plate: str, well: str, method: str | None) -> None:
     cfg = load_config(config_path)
     plate_map = load_plate_map(cfg)
     rows = plate_map[(plate_map["plate"] == plate) & (plate_map["well"] == well)]
@@ -99,23 +102,75 @@ def stitch_command(config_path: str, plate: str, well: str) -> None:
         raise click.ClickException(f"No rows found for plate={plate}, well={well}")
 
     stitch_cfg = cfg.raw["stitching"]
-    rows_n = stitch_cfg.get("grid_rows")
-    cols_n = stitch_cfg.get("grid_cols")
-    if not rows_n or not cols_n:
-        raise click.ClickException("Set stitching.grid_rows and stitching.grid_cols for the quick grid stitcher, or stitch in Fiji first.")
+    if method is None:
+        method = "tile" if stitch_cfg.get("use_stage_positions") else "grid"
 
     for _, row in rows.iterrows():
-        raw_path = cfg.root / row["raw_path"] if not Path(row["raw_path"]).is_absolute() else Path(row["raw_path"])
-        out = cfg.resolve("paths.interim_root") / "stitched" / plate / row["day"] / f"Well_{well}_stitched.ome.tif"
-        stitch_folder_to_ometiff(
-            raw_path,
-            out,
-            int(rows_n),
-            int(cols_n),
-            float(stitch_cfg.get("tile_overlap_fraction", 0.10)),
-            bool(stitch_cfg.get("snake_order", False)),
+        raw_path = (
+            cfg.root / row["raw_path"]
+            if not Path(row["raw_path"]).is_absolute()
+            else Path(row["raw_path"])
         )
+        out = (
+            cfg.resolve("paths.interim_root") / "stitched" / plate
+            / row["day"] / f"Well_{well}_stitched.ome.tif"
+        )
+
+        if method == "tile" and str(raw_path).endswith(".nd2"):
+            stitch_nd2(
+                raw_path,
+                out,
+                refine=True,
+                overlap_fraction=float(stitch_cfg.get("tile_overlap_fraction", 0.10)),
+            )
+        else:
+            rows_n = stitch_cfg.get("grid_rows")
+            cols_n = stitch_cfg.get("grid_cols")
+            if not rows_n or not cols_n:
+                raise click.ClickException(
+                    "Set stitching.grid_rows and stitching.grid_cols for the grid stitcher."
+                )
+            stitch_folder_to_ometiff(
+                raw_path,
+                out,
+                int(rows_n),
+                int(cols_n),
+                float(stitch_cfg.get("tile_overlap_fraction", 0.10)),
+                bool(stitch_cfg.get("snake_order", False)),
+            )
         click.echo(f"Wrote {out}")
+
+
+@main.command("stitch-nd2")
+@click.argument("nd2_path")
+@click.argument("output_path")
+@click.option("--channel", type=int, default=0, show_default=True, help="Channel index to stitch.")
+@click.option("--no-refine", is_flag=True, help="Skip phase-correlation refinement.")
+@click.option("--z-project", type=click.Choice(["max", "mean"]), default="max", show_default=True)
+@click.option("--z-index", type=int, default=None, help="Stitch a single Z plane instead.")
+@click.option("--pixel-size", type=float, default=None, help="Override pixel size (µm).")
+@click.option("--overlap", type=float, default=0.10, show_default=True, help="Overlap fraction.")
+def stitch_nd2_command(
+    nd2_path: str,
+    output_path: str,
+    channel: int,
+    no_refine: bool,
+    z_project: str,
+    z_index: int | None,
+    pixel_size: float | None,
+    overlap: float,
+) -> None:
+    """Stitch multi-position ND2 FOVs using stage coordinates + phase correlation."""
+    try:
+        out = stitch_nd2(
+            nd2_path, output_path,
+            channel=channel, refine=not no_refine,
+            z_project=z_project, z_index=z_index,
+            pixel_size_um=pixel_size, overlap_fraction=overlap,
+        )
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Wrote {out}")
 
 
 @main.command("register-well")
