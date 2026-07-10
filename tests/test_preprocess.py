@@ -53,21 +53,39 @@ def multichannel_images():
 
 
 class TestRescaleField:
-    def test_min_becomes_one(self):
+    def test_centered_on_mean(self):
         field = np.array([[2.0, 4.0], [6.0, 8.0]])
         result = _rescale_field(field)
-        assert result.min() >= 1.0
+        # mean-normalized → field centered on 1 (corrects both directions)
+        assert result.mean() == pytest.approx(1.0)
+        assert result.min() < 1.0 < result.max()
 
     def test_all_zeros(self):
         field = np.zeros((4, 4))
         result = _rescale_field(field)
-        # robust_min=0 → falls back to 1, then clamp to 1
-        assert np.all(result >= 1.0)
+        # mean=0 → center falls back to 1, then floor-clipped to 0.1
+        assert np.all(result >= 0.1)
+        assert np.isfinite(result).all()
+
+    def test_amplifies_dim_corner(self):
+        # Vignetted flatfield: bright center, one dim corner. Mean-normalization
+        # must make the dim corner < 1 (so dividing by it BRIGHTENS that corner).
+        field = np.full((10, 10), 1000.0)
+        field[0, 0] = 500.0
+        result = _rescale_field(field)
+        assert result[0, 0] < 1.0  # dim corner amplified, not just center attenuated
+        assert result.mean() == pytest.approx(1.0)
+
+    def test_floor_guard_against_amplification(self):
+        # Near-zero region must be floored at 0.1, not blown up.
+        field = np.full((8, 8), 1000.0)
+        field[0, 0] = 0.0
+        result = _rescale_field(field)
+        assert result.min() >= 0.1
 
     def test_preserves_relative_ratios(self):
         field = np.array([[10.0, 20.0], [30.0, 40.0]])
         result = _rescale_field(field)
-        # 40/10 ratio should be preserved (min is already at 2nd percentile)
         assert result.max() > result.min()
 
 
@@ -141,9 +159,10 @@ class TestCalculateICField:
         assert field.ndim == 2
         assert field.shape == (32, 32)
 
-    def test_rescale_field_min_ge_one(self, flat_images):
+    def test_rescale_field_centered_on_mean(self, flat_images):
         field = calculate_ic_field(flat_images, rescale_field=True)
-        assert field.min() >= 1.0
+        # mean-normalized field is centered on 1 (both attenuation and gain)
+        assert field.mean() == pytest.approx(1.0)
 
     def test_no_rescale(self, constant_images):
         field = calculate_ic_field(constant_images, rescale_field=False)
@@ -243,6 +262,84 @@ class TestApplyICField:
 
 
 # ---------------------------------------------------------------------------
+# darkfield subtraction (FIX 1)
+# ---------------------------------------------------------------------------
+
+
+class TestDarkfield:
+    def test_scalar_darkfield_subtracts_before_dividing(self):
+        img = np.full((8, 8), 200, dtype=np.uint16)
+        field = np.full((8, 8), 2.0)
+        plain = apply_ic_field(img, field)  # 200 / 2 = 100
+        dk = apply_ic_field(img, field, darkfield=100)  # (200 - 100) / 2 = 50
+        assert np.all(dk < plain)
+        np.testing.assert_array_equal(dk, 50)
+
+    def test_negatives_clamped_to_zero(self):
+        img = np.full((8, 8), 50, dtype=np.uint16)
+        field = np.full((8, 8), 1.0)
+        # 50 - 100 = -50 → clamped to 0 before dividing
+        result = apply_ic_field(img, field, darkfield=100)
+        np.testing.assert_array_equal(result, 0)
+
+    def test_array_darkfield_broadcasts_like_field(self):
+        img = np.full((2, 8, 8), 300, dtype=np.uint16)
+        field = np.full((8, 8), 2.0)
+        dark = np.full((8, 8), 100.0)  # 2D darkfield broadcast across channels
+        result = apply_ic_field(img, field, darkfield=dark)
+        assert result.shape == (2, 8, 8)
+        np.testing.assert_array_equal(result, 100)  # (300-100)/2
+
+    def test_estimate_darkfield_returns_tuple(self):
+        imgs = [np.full((16, 16), 100 + i * 50, dtype=np.uint16) for i in range(5)]
+        result = calculate_ic_field(imgs, estimate_darkfield=True, rescale_field=False)
+        assert isinstance(result, tuple)
+        field, dark = result
+        assert field.shape == (16, 16)
+        assert np.ndim(dark) == 0
+        assert dark >= 0
+
+    def test_default_returns_field_only(self):
+        imgs = [np.full((16, 16), 300, dtype=np.uint16) for _ in range(3)]
+        field = calculate_ic_field(imgs, rescale_field=False)
+        assert isinstance(field, np.ndarray)
+
+
+# ---------------------------------------------------------------------------
+# seeded reproducibility (FIX 3)
+# ---------------------------------------------------------------------------
+
+
+class TestSeededSampling:
+    def test_same_seed_identical_fields(self):
+        imgs = [np.full((16, 16), i * 100, dtype=np.uint16) for i in range(20)]
+        f1 = calculate_ic_field(imgs, sample_fraction=0.5, seed=1, rescale_field=False)
+        f2 = calculate_ic_field(imgs, sample_fraction=0.5, seed=1, rescale_field=False)
+        np.testing.assert_array_equal(f1, f2)
+
+    def test_different_seed_may_differ(self):
+        imgs = [np.full((16, 16), i * 100, dtype=np.uint16) for i in range(20)]
+        f1 = calculate_ic_field(imgs, sample_fraction=0.5, seed=1, rescale_field=False)
+        f3 = calculate_ic_field(imgs, sample_fraction=0.5, seed=2, rescale_field=False)
+        assert not np.array_equal(f1, f3)
+
+
+# ---------------------------------------------------------------------------
+# median estimator robustness (FIX 2)
+# ---------------------------------------------------------------------------
+
+
+class TestMedianEstimator:
+    def test_robust_to_single_bright_outlier(self):
+        base = np.full((16, 16), 200, dtype=np.uint16)
+        imgs = [base.copy() for _ in range(9)]
+        imgs.append(np.full((16, 16), 60000, dtype=np.uint16))  # one bright outlier
+        field = calculate_ic_field(imgs, smooth=1, rescale_field=False)
+        # Median ignores the outlier → field ~ 200, not pulled up toward the mean.
+        assert field.mean() == pytest.approx(200, abs=5)
+
+
+# ---------------------------------------------------------------------------
 # subtract_background
 # ---------------------------------------------------------------------------
 
@@ -308,6 +405,15 @@ class TestPreprocessImage:
         img = np.full((32, 32), 123, dtype=np.uint16)
         result = preprocess_image(img)
         np.testing.assert_array_equal(result, img)
+
+    def test_identity_flatfield_no_double_floor(self):
+        # FIX 6: identity flatfield (1.0) with no darkfield returns the input
+        # unchanged after rounding — no downward-biasing double truncation.
+        rng = np.random.default_rng(5)
+        img = rng.integers(0, 60000, size=(32, 32), dtype=np.uint16)
+        field = np.ones((32, 32))
+        np.testing.assert_array_equal(apply_ic_field(img, field), img)
+        np.testing.assert_array_equal(preprocess_image(img, ic_field=field), img)
 
     def test_3d_with_bg(self):
         img = np.full((2, 64, 64), 300, dtype=np.uint16)

@@ -78,13 +78,15 @@ class TestWellVsPlateIC:
             d = tmp_path / well
             d.mkdir()
             for i in range(4):
-                arr = np.full((32, 32), base, dtype=np.uint16) + rng.integers(0, 10, (32, 32), dtype=np.uint16)
+                arr = np.full((32, 32), base, dtype=np.uint16) + rng.integers(
+                    0, 10, (32, 32), dtype=np.uint16
+                )
                 tifffile.imwrite(str(d / f"img_{i}.tif"), arr)
 
-        # Use rescale_field=False so raw averages reflect actual intensity difference
-        well_a = calculate_ic_field_for_well(tmp_path / "A01", smooth=1)
-        well_b = calculate_ic_field_for_well(tmp_path / "A02", smooth=1)
-        plate = calculate_ic_field_for_plate(tmp_path, sample_fraction=1.0)
+        # Smoke: these paths must not crash (results asserted via raw ICs below)
+        calculate_ic_field_for_well(tmp_path / "A01", smooth=1)
+        calculate_ic_field_for_well(tmp_path / "A02", smooth=1)
+        calculate_ic_field_for_plate(tmp_path, sample_fraction=1.0)
 
         # ponytail: rescale_field defaults True, so compare raw IC via calculate_ic_field
         raw_a = calculate_ic_field(
@@ -100,9 +102,11 @@ class TestWellVsPlateIC:
 
         # Plate IC (raw, unrescaled) should lie between them
         raw_plate = calculate_ic_field(
-            [tifffile.imread(str(p))
-             for well in ["A01", "A02"]
-             for p in sorted((tmp_path / well).glob("*.tif"))],
+            [
+                tifffile.imread(str(p))
+                for well in ["A01", "A02"]
+                for p in sorted((tmp_path / well).glob("*.tif"))
+            ],
             rescale_field=False,
         )
         plate_mean = float(raw_plate.mean())
@@ -134,7 +138,8 @@ class TestSingleImageIC:
         img = _gradient_image(32, 32)
         field = calculate_ic_field([img], rescale_field=True)
         assert field.shape == (32, 32)
-        assert field.min() >= 1.0
+        # mean-normalized → centered on 1 (both attenuation and amplification)
+        assert field.mean() == pytest.approx(1.0)
 
     def test_single_image_no_rescale(self):
         img = np.full((16, 16), 300, dtype=np.uint16)
@@ -195,8 +200,9 @@ class TestAllZeroImages:
     def test_ic_field_from_zeros(self):
         imgs = [np.zeros((32, 32), dtype=np.uint16) for _ in range(5)]
         field = calculate_ic_field(imgs, rescale_field=True)
-        # _rescale_field handles zero robust_min by falling back to 1
-        assert np.all(field >= 1.0)
+        # mean=0 → center falls back to 1, then floor-clipped to 0.1
+        assert np.all(field >= 0.1)
+        assert np.isfinite(field).all()
 
     def test_apply_ic_to_zero_image(self):
         img = np.zeros((32, 32), dtype=np.uint16)
@@ -229,10 +235,11 @@ class TestSaturatedImages:
         field = np.full((32, 32), 0.5)  # doubles the value — clips at 65535
         result = apply_ic_field(img, field)
         assert result.dtype == np.uint16
-        # 65535 / 0.5 = 131070 → uint16 wraps/truncates
-        # The code does .astype(np.uint16) which truncates, not clips.
-        # This is the current behavior — documenting it.
+        # 65535 / 0.5 = 131070 → now clipped to the uint16 max (FIX 6: round+clip,
+        # no wraparound).
         assert result.shape == (32, 32)
+        assert result.max() <= 65535
+        np.testing.assert_array_equal(result, 65535)
 
     def test_subtract_background_saturated(self):
         img = np.full((64, 64), 65535, dtype=np.uint16)
@@ -333,9 +340,14 @@ class TestBackgroundSubtractionIdempotency:
 
 class TestPreprocessOrder:
     def test_ic_applied_before_bg(self):
-        """IC correction should happen first. Verify by comparing with manual order."""
+        """IC correction should happen first. Verify by comparing with manual order.
+
+        Uses an exact-integer IC (even values / field=2) so the intermediate IC
+        result is identical whether or not it is quantized — the single-float
+        pipeline (FIX 6) must still match the step-by-step order.
+        """
         rng = np.random.default_rng(77)
-        img = rng.integers(200, 2000, size=(64, 64), dtype=np.uint16)
+        img = (rng.integers(100, 1000, size=(64, 64)) * 2).astype(np.uint16)
         field = np.full((64, 64), 2.0)
 
         # preprocess_image does IC then BG
