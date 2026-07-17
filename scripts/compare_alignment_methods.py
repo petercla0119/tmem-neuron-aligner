@@ -53,6 +53,17 @@ METHODS = {
     ),
 }
 
+# Anchored-mode sweep: fixed-stride re-anchoring (corr trigger disabled via -1) and
+# correlation-triggered re-anchoring (stride disabled via 0). See Anchored Registration Mode Plan.
+ANCHOR_CONFIGS = [
+    ("stride2", dict(anchor_stride=2, anchor_corr_thresh=-1.0)),
+    ("stride3", dict(anchor_stride=3, anchor_corr_thresh=-1.0)),
+    ("stride4", dict(anchor_stride=4, anchor_corr_thresh=-1.0)),
+    ("corr0.3", dict(anchor_stride=0, anchor_corr_thresh=0.3)),
+    ("corr0.5", dict(anchor_stride=0, anchor_corr_thresh=0.5)),
+    ("corr0.7", dict(anchor_stride=0, anchor_corr_thresh=0.7)),
+]
+
 
 def blob(y, x, cy, cx, amp, sigma):
     return amp * np.exp(-(((y - cy) ** 2 + (x - cx) ** 2) / (2.0 * sigma**2)))
@@ -205,14 +216,24 @@ EXPERIMENTS = {
 # --- runner -------------------------------------------------------------------------------
 
 
-def run_method(stack, stable_shifts, method_name, ref_mode="to_first"):
-    """ref_mode: 'to_first' registers every t to t0 (independent, no accumulation);
-    'to_previous' registers t to t-1 and composes shifts into the net shift back to t0
-    (adjacent frames more similar, but pairwise errors accumulate)."""
+def run_method(stack, stable_shifts, method_name, ref_mode="to_first",
+               anchor_corr_thresh=0.5, anchor_stride=0):
+    """ref_mode:
+      'to_first'    register every t to t0 (independent, no accumulation).
+      'to_previous' register t to t-1, compose to net-shift-to-t0 (accumulates error).
+      'anchored'    register t to the current anchor; when correlation to the anchor drops
+                    below anchor_corr_thresh (or every anchor_stride frames), promote the last
+                    good frame to be the new anchor. Bounds accumulation to a few hops while
+                    keeping the reference similar. Never anchors on the current frame."""
     spec = METHODS[method_name]
     ref0 = reduce_frame(stack[0], spec["reduce"])
-    prev = ref0
-    net_dy = net_dx = 0.0
+    prev = ref0                    # to_previous: reduce(stack[t-1])
+    net_dy = net_dx = 0.0          # to_previous: running net
+    anchor_img = ref0              # anchored: current reference
+    anchor_net = (0.0, 0.0)        # anchored: net shift of the anchor back to t0
+    last_good_img = ref0           # anchored: most recent frame that passed (eligible anchor)
+    last_good_net = (0.0, 0.0)
+    last_anchor_t = 0
     rows = []
     for t in range(stack.shape[0]):
         true_dy, true_dx = stable_shifts[t]
@@ -224,7 +245,7 @@ def run_method(stack, stable_shifts, method_name, ref_mode="to_first"):
             mov = reduce_frame(stack[t], spec["reduce"])
             aligned, (dy, dx), err = register_translation(ref0, mov, **spec["kwargs"])
             post = correlation(ref0, aligned)
-        else:  # to_previous: compose pairwise shifts into a net shift-to-t0
+        elif ref_mode == "to_previous":  # compose pairwise shifts into a net shift-to-t0
             mov = reduce_frame(stack[t], spec["reduce"])
             _, (pdy, pdx), err = register_translation(prev, mov, **spec["kwargs"])
             net_dy += pdy
@@ -232,6 +253,21 @@ def run_method(stack, stable_shifts, method_name, ref_mode="to_first"):
             dy, dx = net_dy, net_dx
             post = correlation(ref0, apply_shift(mov, dy, dx))
             prev = mov
+        else:  # anchored
+            mov = reduce_frame(stack[t], spec["reduce"])
+            aligned, (pdy, pdx), err = register_translation(anchor_img, mov, **spec["kwargs"])
+            post = correlation(anchor_img, aligned)
+            reanchor = (post < anchor_corr_thresh) or (
+                anchor_stride and (t - last_anchor_t) >= anchor_stride)
+            if reanchor and t >= 2:  # promote the last GOOD frame — never the current one
+                anchor_img, anchor_net = last_good_img, last_good_net
+                last_anchor_t = t
+                aligned, (pdy, pdx), err = register_translation(anchor_img, mov, **spec["kwargs"])
+                post = correlation(anchor_img, aligned)
+            dy = anchor_net[0] + pdy
+            dx = anchor_net[1] + pdx
+            if post >= anchor_corr_thresh:  # trustworthy → eligible as a future anchor
+                last_good_img, last_good_net = mov, (dy, dx)
         overlap = overlap_fraction(ref0.shape, (dy, dx))
         qc = classify_registration_qc(
             overlap, dy, dx, ref0.shape[0], ref0.shape[1], post_correlation=post
@@ -296,12 +332,28 @@ def main():
     df.to_csv(OUT / "synthetic_accuracy.csv", index=False)
     pd.DataFrame(crop_rows).to_csv(OUT / "e5_common_overlap_crop.csv", index=False)
 
+    # Anchored-mode sweep (Anchored Registration Mode Plan). Deterministic well seeds → same
+    # stacks as above, so anchored is compared on identical data.
+    anchor_rows = []
+    for w, wseed in enumerate(well_seeds):
+        for exp_name, gen in EXPERIMENTS.items():
+            stack, shifts = gen(np.random.default_rng(int(wseed)), args.n_timepoints)
+            for method in METHODS:
+                for cfg_name, cfg in ANCHOR_CONFIGS:
+                    for r in run_method(stack, shifts, method, "anchored", **cfg):
+                        anchor_rows.append(
+                            {"experiment": exp_name, "well": w, "config": cfg_name, **r}
+                        )
+    adf = pd.DataFrame(anchor_rows)
+    adf.to_csv(OUT / "anchored_mode_sweep.csv", index=False)
+
     _summary_table(df)
     print(f"\nE5 common-overlap crop: mean area retained = "
           f"{np.mean([r['area_retained'] for r in crop_rows]):.3f} across {len(crop_rows)} wells")
     _mode_comparison(df)
+    _anchored_report(df, adf)
     _decisive_figures(e3_example, e5_example, df)
-    _self_check(df)
+    _self_check(df, adf)
     print(f"\nWrote {OUT}/synthetic_accuracy.csv and figures under {OUT}/montages/")
 
 
@@ -310,6 +362,42 @@ def _per_well_err(df, ref_mode="to_first"):
     for one reference mode (default to_first — the mode both shipped paths use)."""
     d = df[(df.timepoint > 0) & (df.ref_mode == ref_mode)]
     return d.groupby(["experiment", "well", "method"])["abs_err_px"].mean()
+
+
+def _anchored_median(adf):
+    """Median-across-wells err per (experiment, config, method)."""
+    return (
+        adf[adf.timepoint > 0]
+        .groupby(["experiment", "config", "well", "method"])["abs_err_px"]
+        .mean()
+        .groupby(level=["experiment", "config", "method"])
+        .median()
+    )
+
+
+def _anchored_report(df, adf):
+    """Compare anchored configs against the to_first baseline on the regimes that matter:
+    E1 (no-harm), E5 (drift), E6 (decorrelation). Success = beats to_first on E6 without
+    hurting E1/E5. Writes a tidy delta CSV and prints the verdict per method."""
+    base = _per_well_err(df, "to_first").groupby(level=["experiment", "method"]).median()
+    anc = _anchored_median(adf)
+    print("\n=== Anchored sweep — median err (px) vs to_first (Anchored Registration Mode Plan) ===")
+    delta_rows = []
+    for exp in ("E1_baseline", "E5_drift", "E6_decorrelation"):
+        print(f"\n{exp}:")
+        for method in METHODS:
+            b = base[exp, method]
+            best_cfg = min(ANCHOR_CONFIGS, key=lambda c: anc[exp, c[0], method])[0]
+            best = anc[exp, best_cfg, method]
+            cfgs = "  ".join(f"{c}={anc[exp, c, method]:.2f}" for c, _ in ANCHOR_CONFIGS)
+            flag = "  <-- beats to_first" if best < b - 0.3 else ""
+            print(f"  {method:16s} to_first={b:.2f} | {cfgs} | best={best_cfg}{flag}")
+            for c, _ in ANCHOR_CONFIGS:
+                delta_rows.append({"experiment": exp, "method": method, "config": c,
+                                   "to_first": round(float(b), 3),
+                                   "anchored": round(float(anc[exp, c, method]), 3),
+                                   "delta_anchored_minus_first": round(float(anc[exp, c, method] - b), 3)})
+    pd.DataFrame(delta_rows).to_csv(OUT / "anchored_vs_first.csv", index=False)
 
 
 def _mode_comparison(df):
@@ -378,7 +466,7 @@ def _decisive_figures(e3_stack, e5_example, df):
         plt.close(fig)
 
 
-def _self_check(df):
+def _self_check(df, adf=None):
     """Encode the plan's hypotheses as runnable asserts, using medians across wells so one
     unlucky random well can't flip the result. Data is already written first."""
     med = _per_well_err(df).groupby(level=["experiment", "method"]).median()
@@ -399,8 +487,23 @@ def _self_check(df):
     assert mode["E5_drift", "to_previous", "B_pilot"] > mode["E5_drift", "to_first", "B_pilot"], (
         "expected sequential accumulation to hurt on E5 drift"
     )
+
+    if adf is not None:
+        anc = _anchored_median(adf)
+        # Anchored earns its place ONLY if it beats to_first on E6 for the masked path...
+        base6 = med["E6_decorrelation", "B_pilot"]
+        best6 = min(anc["E6_decorrelation", c, "B_pilot"] for c, _ in ANCHOR_CONFIGS)
+        assert best6 < base6 - 0.3, (
+            f"anchored should beat to_first on E6 masked path (got {best6:.2f} vs {base6:.2f})"
+        )
+        # ...without hurting the clean baseline.
+        base1 = med["E1_baseline", "B_pilot"]
+        best1 = min(anc["E1_baseline", c, "B_pilot"] for c, _ in ANCHOR_CONFIGS)
+        assert best1 <= base1 + 0.05, (
+            f"anchored should not hurt E1 baseline (got {best1:.2f} vs {base1:.2f})"
+        )
     print("\nself-check: PASS (subpixel tradeoff + mCherry leak + illumination lock + "
-          "sequential accumulation reproduced)")
+          "sequential accumulation + anchored-helps-masked-on-decorrelation reproduced)")
 
 
 if __name__ == "__main__":
