@@ -14,3 +14,6 @@ E4_gradient,stable_subpixel,0.157,0.1708,1.0
 E5_drift,A_cli,0.1059,0.1208,1.0
 E5_drift,B_pilot,0.3868,0.4338,1.0
 E5_drift,stable_subpixel,0.1538,0.1665,1.0
+E6_decorrelation,A_cli,38.6348,54.0354,0.0
+E6_decorrelation,B_pilot,2.5693,4.6053,0.4
+E6_decorrelation,stable_subpixel,69.0475,79.2161,0.0

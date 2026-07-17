@@ -155,6 +155,34 @@ def make_e5_drift(rng, n_t):
     return _apply_same(stable, stable * 0.15, shifts), shifts
 
 
+def make_e6_decorrelation(rng, n_t):
+    """Large drift + PROGRESSIVE morphology change — the realistic month-long case where t0
+    and t9 look different (features drift, brighten/fade, turn over) even though adjacent
+    days stay similar. This is the regime where sequential (to-previous) registration is
+    hypothesized to help. Ground truth = the applied global rigid drift; the evolving
+    morphology is decorrelation on top of it."""
+    y, x = _grid()
+    blobs = [[rng.uniform(50, 142), rng.uniform(50, 142), rng.uniform(0.6, 1.0), rng.uniform(9, 14)]
+             for _ in range(4)]
+    shifts = _drift_shifts(rng, n_t)
+    frames = []
+    for t, (dy, dx) in enumerate(shifts):
+        if t > 0:  # evolve the morphology one step
+            for b in blobs:
+                b[0] += rng.normal(0, 2.0)
+                b[1] += rng.normal(0, 2.0)
+                b[2] *= rng.uniform(0.9, 1.05)
+            if rng.random() < 0.4:  # occasional feature turnover
+                blobs.append([rng.uniform(50, 142), rng.uniform(50, 142),
+                              rng.uniform(0.4, 0.8), rng.uniform(8, 12)])
+        stable = np.zeros((N, N), np.float32)
+        for cy, cx, amp, s in blobs:
+            stable += blob(y, x, cy, cx, amp, s)
+        stable += 0.05 * rng.normal(size=stable.shape)
+        frames.append(apply_shift(np.stack([stable, stable * 0.15], axis=0), dy, dx))
+    return np.stack(frames, axis=0), shifts
+
+
 def _apply_same(stable2d, mcherry2d, shifts):
     frames = [apply_shift(np.stack([stable2d, mcherry2d], axis=0), dy, dx) for dy, dx in shifts]
     return np.stack(frames, axis=0)
@@ -170,15 +198,21 @@ EXPERIMENTS = {
     "E3_mcherry": make_e3_mcherry,
     "E4_gradient": make_e4_gradient,
     "E5_drift": make_e5_drift,
+    "E6_decorrelation": make_e6_decorrelation,
 }
 
 
 # --- runner -------------------------------------------------------------------------------
 
 
-def run_method(stack, stable_shifts, method_name):
+def run_method(stack, stable_shifts, method_name, ref_mode="to_first"):
+    """ref_mode: 'to_first' registers every t to t0 (independent, no accumulation);
+    'to_previous' registers t to t-1 and composes shifts into the net shift back to t0
+    (adjacent frames more similar, but pairwise errors accumulate)."""
     spec = METHODS[method_name]
-    ref = reduce_frame(stack[0], spec["reduce"])
+    ref0 = reduce_frame(stack[0], spec["reduce"])
+    prev = ref0
+    net_dy = net_dx = 0.0
     rows = []
     for t in range(stack.shape[0]):
         true_dy, true_dx = stable_shifts[t]
@@ -186,17 +220,26 @@ def run_method(stack, stable_shifts, method_name):
             dy = dx = 0.0
             err = 0.0
             post = 1.0
-        else:
+        elif ref_mode == "to_first":
             mov = reduce_frame(stack[t], spec["reduce"])
-            aligned, (dy, dx), err = register_translation(ref, mov, **spec["kwargs"])
-            post = correlation(ref, aligned)
-        overlap = overlap_fraction(ref.shape, (dy, dx))
+            aligned, (dy, dx), err = register_translation(ref0, mov, **spec["kwargs"])
+            post = correlation(ref0, aligned)
+        else:  # to_previous: compose pairwise shifts into a net shift-to-t0
+            mov = reduce_frame(stack[t], spec["reduce"])
+            _, (pdy, pdx), err = register_translation(prev, mov, **spec["kwargs"])
+            net_dy += pdy
+            net_dx += pdx
+            dy, dx = net_dy, net_dx
+            post = correlation(ref0, apply_shift(mov, dy, dx))
+            prev = mov
+        overlap = overlap_fraction(ref0.shape, (dy, dx))
         qc = classify_registration_qc(
-            overlap, dy, dx, ref.shape[0], ref.shape[1], post_correlation=post
+            overlap, dy, dx, ref0.shape[0], ref0.shape[1], post_correlation=post
         )
         rows.append(
             {
                 "method": method_name,
+                "ref_mode": ref_mode,
                 "timepoint": t,
                 "true_dy": true_dy,
                 "true_dx": true_dx,
@@ -233,18 +276,19 @@ def main():
         for exp_name, gen in EXPERIMENTS.items():
             stack, shifts = gen(np.random.default_rng(int(wseed)), args.n_timepoints)
             for method in METHODS:
-                method_rows = run_method(stack, shifts, method)
-                for r in method_rows:
-                    all_rows.append({"experiment": exp_name, "well": w, **r})
-                # E5: common-overlap crop area from Path B's estimated shifts, per well.
-                if exp_name == "E5_drift" and method == "B_pilot":
-                    b_shifts = [(r["est_dy"], r["est_dx"]) for r in method_rows]
-                    crop = common_overlap_crop(stack.shape[-2:], b_shifts, robust=True)
-                    area = ((crop["y_stop"] - crop["y_start"]) * (crop["x_stop"] - crop["x_start"])
-                            / (N * N))
-                    crop_rows.append({"well": w, **crop, "area_retained": area})
-                    if w == 0:
-                        e5_example = (stack, crop)
+                for ref_mode in ("to_first", "to_previous"):
+                    method_rows = run_method(stack, shifts, method, ref_mode)
+                    for r in method_rows:
+                        all_rows.append({"experiment": exp_name, "well": w, **r})
+                    # E5: common-overlap crop from Path B's to_first shifts, per well.
+                    if exp_name == "E5_drift" and method == "B_pilot" and ref_mode == "to_first":
+                        b_shifts = [(r["est_dy"], r["est_dx"]) for r in method_rows]
+                        crop = common_overlap_crop(stack.shape[-2:], b_shifts, robust=True)
+                        area = ((crop["y_stop"] - crop["y_start"])
+                                * (crop["x_stop"] - crop["x_start"]) / (N * N))
+                        crop_rows.append({"well": w, **crop, "area_retained": area})
+                        if w == 0:
+                            e5_example = (stack, crop)
             if exp_name == "E3_mcherry" and w == 0:
                 e3_example = stack
 
@@ -255,14 +299,36 @@ def main():
     _summary_table(df)
     print(f"\nE5 common-overlap crop: mean area retained = "
           f"{np.mean([r['area_retained'] for r in crop_rows]):.3f} across {len(crop_rows)} wells")
+    _mode_comparison(df)
     _decisive_figures(e3_example, e5_example, df)
     _self_check(df)
     print(f"\nWrote {OUT}/synthetic_accuracy.csv and figures under {OUT}/montages/")
 
 
-def _per_well_err(df):
-    """Mean abs error per (experiment, well, method) over registered timepoints (t>0)."""
-    return df[df.timepoint > 0].groupby(["experiment", "well", "method"])["abs_err_px"].mean()
+def _per_well_err(df, ref_mode="to_first"):
+    """Mean abs error per (experiment, well, method) over registered timepoints (t>0),
+    for one reference mode (default to_first — the mode both shipped paths use)."""
+    d = df[(df.timepoint > 0) & (df.ref_mode == ref_mode)]
+    return d.groupby(["experiment", "well", "method"])["abs_err_px"].mean()
+
+
+def _mode_comparison(df):
+    """to_first vs to_previous, median across wells. delta>0 => to_previous is WORSE."""
+    pw = (
+        df[df.timepoint > 0]
+        .groupby(["experiment", "ref_mode", "well", "method"])["abs_err_px"]
+        .mean()
+        .reset_index()
+    )
+    med = (
+        pw.groupby(["experiment", "method", "ref_mode"])["abs_err_px"]
+        .median()
+        .unstack("ref_mode")
+    )
+    med["delta_prev_minus_first"] = med["to_previous"] - med["to_first"]
+    print("\nReference mode — median err (px). delta>0 = to_previous WORSE than to_first:")
+    print(med.round(3).to_string())
+    med.round(4).to_csv(OUT / "reference_mode_comparison.csv")
 
 
 def _summary_table(df):
@@ -325,7 +391,16 @@ def _self_check(df):
     assert b3 < 1.5, f"E3: expected B_pilot to ignore mCherry (err={b3:.2f})"
     a2, b2 = med["E2_sparse", "A_cli"], med["E2_sparse", "B_pilot"]
     assert a2 > b2 + 2.0, f"E2: expected A_cli to lock onto static illumination (A={a2:.2f})"
-    print("\nself-check: PASS (subpixel tradeoff + mCherry leak + illumination lock reproduced)")
+
+    # Sequential (to-previous) accumulates pairwise error → worse than to-first on plain drift.
+    mode = df[df.timepoint > 0].groupby(
+        ["experiment", "ref_mode", "method"]
+    )["abs_err_px"].median()
+    assert mode["E5_drift", "to_previous", "B_pilot"] > mode["E5_drift", "to_first", "B_pilot"], (
+        "expected sequential accumulation to hurt on E5 drift"
+    )
+    print("\nself-check: PASS (subpixel tradeoff + mCherry leak + illumination lock + "
+          "sequential accumulation reproduced)")
 
 
 if __name__ == "__main__":
