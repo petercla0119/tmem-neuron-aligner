@@ -62,6 +62,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
     parser.add_argument("--limit-wells", type=int, default=None)
     parser.add_argument("--workers", type=int, default=1, help="Parallel workers (default 1 = sequential).")
+    parser.add_argument(
+        "--ref-mode",
+        choices=["to_first", "anchored"],
+        default="to_first",
+        help="Temporal registration mode: 'to_first' (register every day to day 0, default) or "
+        "'anchored' (re-anchor to the last good frame when correlation drops).",
+    )
+    parser.add_argument(
+        "--anchor-corr-thresh",
+        type=float,
+        default=0.10,
+        help="Anchored mode: re-anchor when post-corr to the current anchor drops below this. "
+        "Ignored for --ref-mode to_first.",
+    )
+    parser.add_argument(
+        "--min-post-correlation",
+        type=float,
+        default=0.07,
+        help="QC gate: a timepoint fails when its post-registration correlation is below this.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -73,6 +93,9 @@ def _process_one_well(
     channels: list[str],
     max_sites: int,
     max_read_bytes: int,
+    ref_mode: str = "to_first",
+    anchor_corr_thresh: float = 0.10,
+    min_post_correlation: float = 0.07,
 ) -> dict[str, Any]:
     try:
         if len(rows) != len(days):
@@ -88,6 +111,9 @@ def _process_one_well(
             rows=rows,
             alignment_channel_index=alignment_index,
             alignment_channel_label=channel_names[alignment_index],
+            ref_mode=ref_mode,
+            anchor_corr_thresh=anchor_corr_thresh,
+            min_post_correlation=min_post_correlation,
         )
         condition = condition_for_well(well)
         for row in well_qc:
@@ -165,6 +191,7 @@ def main() -> None:
                 pool.submit(
                     _process_one_well, well, rows, args.days, args.channels,
                     args.max_sites, args.max_read_bytes,
+                    args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
                 ): (idx, well)
                 for idx, (well, rows) in enumerate(well_items, start=1)
             }
@@ -185,6 +212,7 @@ def main() -> None:
             result = _process_one_well(
                 well, rows, args.days, args.channels,
                 args.max_sites, args.max_read_bytes,
+                args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
             )
             if result["error"]:
                 failure_rows.append(result["error"])

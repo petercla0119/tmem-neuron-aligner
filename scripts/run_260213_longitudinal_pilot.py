@@ -81,11 +81,41 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable robust crop — use strict intersection of all shifts (old behaviour).",
     )
+    parser.add_argument(
+        "--ref-mode",
+        choices=["to_first", "anchored"],
+        default="to_first",
+        help="Temporal registration mode: 'to_first' (register every day to day 0, default) or "
+        "'anchored' (re-anchor to the last good frame when correlation drops).",
+    )
+    parser.add_argument(
+        "--anchor-corr-thresh",
+        type=float,
+        default=0.10,
+        help="Anchored mode: re-anchor when post-corr to the current anchor drops below this "
+        "(calibrated on 260213 real data). Ignored for --ref-mode to_first.",
+    )
+    parser.add_argument(
+        "--min-post-correlation",
+        type=float,
+        default=0.07,
+        help="QC gate: a timepoint fails when its post-registration correlation is below this.",
+    )
     return parser.parse_args()
 
 
 def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
-    well, rows, channels, max_sites, max_read_bytes, robust_crop = args_tuple
+    (
+        well,
+        rows,
+        channels,
+        max_sites,
+        max_read_bytes,
+        robust_crop,
+        ref_mode,
+        anchor_corr_thresh,
+        min_post_correlation,
+    ) = args_tuple
     loaded = [load_nd2_cyx(row["path"], max_sites, max_read_bytes) for row in rows]
     channel_names = loaded[0]["channel_names"]
     alignment_index = choose_channel_index(channel_names, channels[0])
@@ -98,6 +128,9 @@ def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
         alignment_channel_index=alignment_index,
         alignment_channel_label=channel_names[alignment_index],
         robust_crop=robust_crop,
+        ref_mode=ref_mode,
+        anchor_corr_thresh=anchor_corr_thresh,
+        min_post_correlation=min_post_correlation,
     )
     common = crop_tcyx(registered, common_crop)
     metadata_rows = [
@@ -160,7 +193,17 @@ def main() -> None:
     crops: dict[str, dict[str, int]] = {}
 
     well_args = [
-        (well, selected[well], args.channels, args.max_sites, args.max_read_bytes, args.robust_crop)
+        (
+            well,
+            selected[well],
+            args.channels,
+            args.max_sites,
+            args.max_read_bytes,
+            args.robust_crop,
+            args.ref_mode,
+            args.anchor_corr_thresh,
+            args.min_post_correlation,
+        )
         for well in wells
     ]
 
@@ -323,6 +366,43 @@ def standardize_to_cyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
     raise ValueError(f"Cannot standardize shape {arr.shape} with axes {axes} to CYX")
 
 
+def _anchored_shifts(
+    stable_frames: np.ndarray,
+    thresh: float,
+) -> tuple[list[tuple[float, float]], list[float], list[bool]]:
+    """Per-timepoint net (dy, dx)-to-t0, post-corr, and reanchored flag. Single source of the
+    anchor math; mirrors scripts/plot_day_shift_overlay.register_anchored on the masked engine:
+    register to the current anchor; if post-corr < thresh and t>=2 re-anchor to the LAST GOOD
+    frame (never the current one) and re-register; compose net = anchor_net + pairwise; only
+    frames with post >= thresh become eligible future anchors. No image application."""
+    anchor, anchor_net = stable_frames[0], (0.0, 0.0)
+    last_good_img, last_good_net = stable_frames[0], (0.0, 0.0)
+    shifts: list[tuple[float, float]] = [(0.0, 0.0)]
+    post: list[float] = [1.0]
+    reanchored: list[bool] = [False]
+    for time_index in range(1, len(stable_frames)):
+        moving = stable_frames[time_index]
+        aligned, (pdy, pdx), _ = register_translation(
+            anchor, moving, robust_preprocess=False, mask_percentile=20.0
+        )
+        p = correlation(anchor, aligned)
+        did = False
+        if p < thresh and time_index >= 2:
+            anchor, anchor_net = last_good_img, last_good_net
+            aligned, (pdy, pdx), _ = register_translation(
+                anchor, moving, robust_preprocess=False, mask_percentile=20.0
+            )
+            p = correlation(anchor, aligned)
+            did = True
+        net = (anchor_net[0] + pdy, anchor_net[1] + pdx)
+        shifts.append(net)
+        post.append(p)
+        reanchored.append(did)
+        if p >= thresh:  # trustworthy → eligible future anchor
+            last_good_img, last_good_net = moving, net
+    return shifts, post, reanchored
+
+
 def register_stack(
     stack: np.ndarray,
     *,
@@ -331,11 +411,28 @@ def register_stack(
     alignment_channel_index: int,
     alignment_channel_label: str,
     robust_crop: bool = True,
+    ref_mode: str = "to_first",
+    anchor_corr_thresh: float = 0.10,
+    min_post_correlation: float = 0.07,
 ) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
     # Register on the RAW stable channel with masked phase correlation (ignore background
     # below p20). Do NOT clip+blur here: it smears the sparse neuron signal and makes the
     # peak lock onto image edges, producing axis-locked 500-1400 px garbage shifts (see docs).
     reference = stack[0, alignment_channel_index]
+
+    if ref_mode == "anchored":
+        return _register_stack_anchored(
+            stack,
+            reference=reference,
+            well=well,
+            rows=rows,
+            alignment_channel_index=alignment_channel_index,
+            alignment_channel_label=alignment_channel_label,
+            robust_crop=robust_crop,
+            anchor_corr_thresh=anchor_corr_thresh,
+            min_post_correlation=min_post_correlation,
+        )
+
     registered = [stack[0]]
     shifts = [(0.0, 0.0)]
     qc_rows = [
@@ -397,6 +494,112 @@ def register_stack(
         registered_stack,
         qc_rows,
         common_overlap_crop(stack.shape[-2:], shifts, robust=robust_crop),
+    )
+
+
+def _register_stack_anchored(
+    stack: np.ndarray,
+    *,
+    reference: np.ndarray,
+    well: str,
+    rows: list[dict[str, Any]],
+    alignment_channel_index: int,
+    alignment_channel_label: str,
+    robust_crop: bool,
+    anchor_corr_thresh: float,
+    min_post_correlation: float,
+) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
+    """Anchored/masked temporal registration. Net shifts come from _anchored_shifts (the single
+    source of anchor math); we apply each net shift to ALL channels and feed the net shifts to
+    the common-overlap crop, exactly like the to_first path."""
+    stable_frames = stack[:, alignment_channel_index]
+    net_shifts, post_corrs, reanchored_flags = _anchored_shifts(stable_frames, anchor_corr_thresh)
+
+    # Reconstruct which frame served as the anchor per timepoint (for auditable anchor_ref_day):
+    # anchor is day0 until a re-anchor promotes the last good frame; last-good tracks post>=thresh.
+    anchor_ref_days = [rows[0]["day"]]
+    last_good_index = 0
+    anchor_index = 0
+    for time_index in range(1, stack.shape[0]):
+        if reanchored_flags[time_index]:
+            anchor_index = last_good_index
+        anchor_ref_days.append(rows[anchor_index]["day"])
+        if post_corrs[time_index] >= anchor_corr_thresh:
+            last_good_index = time_index
+
+    # Per-well churn verdict (§2.6): fail if re-anchoring more than every other frame, or any
+    # timepoint still below the QC gate after its retry.
+    n_timepoints = stack.shape[0]
+    n_reanchors = int(sum(reanchored_flags))
+    anchor_churn = n_reanchors / (n_timepoints - 1) if n_timepoints > 1 else 0.0
+    any_below_gate = any(p < min_post_correlation for p in post_corrs[1:])
+    well_registration_qc_pass = not (anchor_churn > 0.5 or any_below_gate)
+
+    registered = [stack[0]]
+    qc_rows = [
+        {
+            "well": well,
+            "condition": condition_for_well(well),
+            "timepoint_day": rows[0]["day"],
+            "registration_channel": alignment_channel_label,
+            "estimated_y_shift": 0.0,
+            "estimated_x_shift": 0.0,
+            "pre_registration_correlation": 1.0,
+            "post_registration_correlation": 1.0,
+            "overlap_fraction": 1.0,
+            "registration_error": float("nan"),
+            "qc_pass": True,
+            "large_shift": False,
+            "reanchored": False,
+            "anchor_ref_day": anchor_ref_days[0],
+            "n_reanchors": n_reanchors,
+            "anchor_churn": anchor_churn,
+            "well_registration_qc_pass": well_registration_qc_pass,
+            "qc_note": "anchored_masked_phase_cross_correlation",
+        }
+    ]
+
+    for time_index in range(1, stack.shape[0]):
+        dy, dx = net_shifts[time_index]
+        post = post_corrs[time_index]
+        moving = stable_frames[time_index]
+        registered.append(apply_shift(stack[time_index], dy, dx))
+        overlap = overlap_fraction(stack.shape[-2:], (dy, dx))
+        qc_rows.append(
+            {
+                "well": well,
+                "condition": condition_for_well(well),
+                "timepoint_day": rows[time_index]["day"],
+                "registration_channel": alignment_channel_label,
+                "estimated_y_shift": dy,
+                "estimated_x_shift": dx,
+                "pre_registration_correlation": correlation(reference, moving),
+                "post_registration_correlation": post,
+                "overlap_fraction": overlap,
+                "registration_error": float("nan"),
+                **classify_registration_qc(
+                    overlap,
+                    dy,
+                    dx,
+                    stack.shape[-2],
+                    stack.shape[-1],
+                    post_correlation=post,
+                    min_post_correlation=min_post_correlation,
+                ),
+                "reanchored": bool(reanchored_flags[time_index]),
+                "anchor_ref_day": anchor_ref_days[time_index],
+                "n_reanchors": n_reanchors,
+                "anchor_churn": anchor_churn,
+                "well_registration_qc_pass": well_registration_qc_pass,
+                "qc_note": "anchored_masked_phase_cross_correlation",
+            }
+        )
+
+    registered_stack = np.stack(registered, axis=0)
+    return (
+        registered_stack,
+        qc_rows,
+        common_overlap_crop(stack.shape[-2:], net_shifts, robust=robust_crop),
     )
 
 
