@@ -16,13 +16,35 @@ def register_translation(
     upsample_factor: int = 10,
     max_shift_pixels: float | None = None,
     robust_preprocess: bool = True,
+    mask_percentile: float | None = None,
 ) -> tuple[np.ndarray, tuple[float, float], float]:
+    """Estimate the (dy, dx) translation aligning ``moving`` onto ``reference``.
+
+    mask_percentile: if set, run *masked* phase cross-correlation that ignores background
+    below that intensity percentile so the sparse fluorescent foreground drives the peak.
+    This is the recommended path for sparse-neuron frames; do NOT combine it with
+    robust_preprocess — the clip+blur smears the point-like signal and makes the peak lock
+    onto image edges/illumination (see docs). Masked correlation is integer-pixel
+    (upsample_factor is ignored) and returns error=nan.
+    """
     ref2d = normalize_to_2d(reference)
     mov2d = normalize_to_2d(moving)
     if robust_preprocess:
         ref2d = robust_registration_image(ref2d)
         mov2d = robust_registration_image(mov2d)
-    shift, error, _ = phase_cross_correlation(ref2d, mov2d, upsample_factor=upsample_factor)
+    if mask_percentile is not None:
+        ref2d = np.asarray(ref2d, dtype=np.float32)
+        mov2d = np.asarray(mov2d, dtype=np.float32)
+        ref_mask = ref2d > np.percentile(ref2d, mask_percentile)
+        mov_mask = mov2d > np.percentile(mov2d, mask_percentile)
+        result = phase_cross_correlation(
+            ref2d, mov2d, reference_mask=ref_mask, moving_mask=mov_mask
+        )
+        # masked variant returns just the shift (older skimage) or a 3-tuple (newer)
+        shift = np.asarray(result[0] if isinstance(result, tuple) else result).ravel()
+        error = float("nan")
+    else:
+        shift, error, _ = phase_cross_correlation(ref2d, mov2d, upsample_factor=upsample_factor)
     dy, dx = float(shift[0]), float(shift[1])
     if max_shift_pixels is not None and (abs(dy) > max_shift_pixels or abs(dx) > max_shift_pixels):
         raise ValueError(f"Estimated shift {(dy, dx)} exceeds max_shift_pixels={max_shift_pixels}")
