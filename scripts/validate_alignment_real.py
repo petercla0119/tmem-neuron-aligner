@@ -36,10 +36,12 @@ import run_260213_longitudinal_pilot as pilot  # noqa: E402  (reuse loaders)
 
 OUT = Path("reports/alignment_comparison/real_data")
 
-# Same two shipped paths as the synthetic harness, driven on real multi-channel stacks.
+# The two shipped paths + the ablation control, driven on real multi-channel stacks.
 METHODS = {
     "A_cli": dict(reduce="maxproj", kwargs=dict(robust_preprocess=True, upsample_factor=10)),
     "B_pilot": dict(reduce="stable", kwargs=dict(robust_preprocess=False, mask_percentile=20.0)),
+    # ablation: stable channel + subpixel, NO clip/blur, NO mask — does it hold up on real data?
+    "stable_subpixel": dict(reduce="stable", kwargs=dict(robust_preprocess=False, upsample_factor=20)),
 }
 
 

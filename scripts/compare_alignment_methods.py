@@ -52,6 +52,10 @@ METHODS = {
         reduce="stable", kwargs=dict(robust_preprocess=False, upsample_factor=20)
     ),
 }
+# NOTE: stable_subpixel looks best on the synthetic fixtures E1-E5, but real-data validation
+# (validate_alignment_real.py on C05/E05/F05) REFUTES that: without masking it fails like A_cli
+# (post-corr ~0.004 vs B_pilot ~0.16). The masking is the essential ingredient. E1-E5 are too
+# clean to expose this; E6 (decorrelation) is the only synthetic fixture that hints at it.
 
 # Anchored-mode sweep: fixed-stride re-anchoring (corr trigger disabled via -1) and
 # correlation-triggered re-anchoring (stride disabled via 0). See Anchored Registration Mode Plan.
