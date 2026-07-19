@@ -25,11 +25,59 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from tmem_align.register import apply_shift, register_translation
+from tmem_align.registration_qc import correlation
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_260213_longitudinal_pilot as pilot  # noqa: E402
 
 OUT = Path("reports/alignment_comparison/real_data/day_overlays")
+
+
+def _masked(ref, mov):
+    """Masked phase-correlation (the pilot/B_pilot path). Returns (aligned, (dy, dx))."""
+    aligned, (dy, dx), _ = register_translation(
+        ref, mov, robust_preprocess=False, mask_percentile=20.0
+    )
+    return aligned, (dy, dx)
+
+
+def register_to_first(stable):
+    """Register every day to day 0 (current pipeline behavior)."""
+    ref = stable[0]
+    shifts, post, reg = [(0.0, 0.0)], [1.0], [stable[0]]
+    for s in stable[1:]:
+        aligned, (dy, dx) = _masked(ref, s)
+        shifts.append((dy, dx))
+        post.append(correlation(ref, aligned))
+        reg.append(aligned)
+    return shifts, post, reg
+
+
+def register_anchored(stable, thresh):
+    """Anchored: register to the current anchor; when correlation to it drops below `thresh`,
+    re-anchor to the last good frame (never the current one) and re-register. Net shift back to
+    day 0 is composed across anchor hops."""
+    anchor, anchor_net = stable[0], (0.0, 0.0)
+    last_good_img, last_good_net = stable[0], (0.0, 0.0)
+    shifts, post, reg, reanchored = [(0.0, 0.0)], [1.0], [stable[0]], [False]
+    for t in range(1, len(stable)):
+        mov = stable[t]
+        aligned, (pdy, pdx) = _masked(anchor, mov)
+        p = correlation(anchor, aligned)
+        did = False
+        if p < thresh and t >= 2:
+            anchor, anchor_net = last_good_img, last_good_net
+            aligned, (pdy, pdx) = _masked(anchor, mov)
+            p = correlation(anchor, aligned)
+            did = True
+        net = (anchor_net[0] + pdy, anchor_net[1] + pdx)
+        shifts.append(net)
+        post.append(p)
+        reg.append(apply_shift(mov, *net))
+        reanchored.append(did)
+        if p >= thresh:  # trustworthy → eligible future anchor
+            last_good_img, last_good_net = mov, net
+    return shifts, post, reg, reanchored
 
 
 def norm(frame, scale):
@@ -57,6 +105,10 @@ def main():
     ap.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
     ap.add_argument("--stable-channel", default="488")
     ap.add_argument("--scale", type=float, default=1.4, help="brightness scale for the overlay")
+    ap.add_argument("--anchor-corr-thresh", type=float, default=0.10,
+                    help="re-anchor when correlation to the current anchor drops below this. "
+                         "Calibrated on 260213 real data (good ~0.15, garbage ~0.005): 0.10-0.12 "
+                         "recovers all late timepoints to post-corr >=0.19; 0.07 leaves day39 partial.")
     args = ap.parse_args()
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -79,54 +131,60 @@ def main():
 
         colors = plt.cm.turbo(np.linspace(0.05, 0.95, len(days)))
 
-        # register each day to day 0 on the stable channel (B_pilot masked path)
-        ref = stable[0]
-        shifts = [(0.0, 0.0)]
-        registered = [stable[0]]
-        for s in stable[1:]:
-            _, (dy, dx), _ = register_translation(ref, s, robust_preprocess=False, mask_percentile=20.0)
-            shifts.append((dy, dx))
-            registered.append(apply_shift(s, dy, dx))
+        sf, pf, regf = register_to_first(stable)
+        sa, pa, rega, ra = register_anchored(stable, args.anchor_corr_thresh)
 
         raw_n = [norm(s, args.scale) for s in stable]
-        reg_n = [norm(s, args.scale) for s in registered]
+        first_n = [norm(s, args.scale) for s in regf]
+        anch_n = [norm(s, args.scale) for s in rega]
 
-        fig, ax = plt.subplots(1, 3, figsize=(16, 5.5), constrained_layout=True)
+        fig, ax = plt.subplots(1, 4, figsize=(22, 5.6), constrained_layout=True)
         ax[0].imshow(composite(raw_n, colors))
-        ax[0].set_title(f"{well} — RAW overlay (physical drift)")
-        ax[1].imshow(composite(reg_n, colors))
-        ax[1].set_title(f"{well} — registered overlay (cells locked = good)")
-        for a in ax[:2]:
+        ax[0].set_title(f"{well} — RAW (physical drift)")
+        ax[1].imshow(composite(first_n, colors))
+        ax[1].set_title(f"{well} — to-first registered")
+        ax[2].imshow(composite(anch_n, colors))
+        ax[2].set_title(f"{well} — anchored registered")
+        for a in ax[:3]:
             a.set_axis_off()
 
-        # shift trajectory: estimated offset of each day relative to day 0 (image px)
-        # recovered shift ~= -(applied drift); negate so the arrow points the way cells moved.
-        xs = [-dx for _, dx in shifts]
-        ys = [-dy for dy, _ in shifts]
-        ax[2].plot(xs, ys, "-", color="0.6", lw=1, zorder=1)
-        for i, (x, y) in enumerate(zip(xs, ys)):
-            ax[2].scatter(x, y, color=colors[i], s=90, zorder=2, edgecolor="k", linewidth=0.4)
-            ax[2].annotate(f"d{days[i]}", (x, y), fontsize=8, xytext=(4, 4),
-                           textcoords="offset points")
-        ax[2].scatter(0, 0, marker="*", s=200, color=colors[0], edgecolor="k", zorder=3)
-        ax[2].set_title(f"{well} — cell shift vs day {days[0]} (px)")
-        ax[2].set_xlabel("x shift (px)")
-        ax[2].set_ylabel("y shift (px)")
-        ax[2].invert_yaxis()  # match image coordinates (y down)
-        ax[2].axhline(0, color="0.85", lw=0.5)
-        ax[2].axvline(0, color="0.85", lw=0.5)
-        ax[2].set_aspect("equal", adjustable="datalim")
-        ax[2].grid(True, alpha=0.2)
+        # trajectory: to-first (circles) vs anchored (squares), colored by day.
+        # recovered shift ~= -(applied); negate so arrows point the way cells moved.
+        for shifts_set, marker, dashes in ((sf, "o", (None, None)), (sa, "s", (4, 2))):
+            xs = [-dx for _, dx in shifts_set]
+            ys = [-dy for dy, _ in shifts_set]
+            ax[3].plot(xs, ys, color="0.7", lw=0.8, zorder=1, dashes=dashes)
+            for i, (x, y) in enumerate(zip(xs, ys)):
+                ax[3].scatter(x, y, color=colors[i], s=70, marker=marker, zorder=2,
+                              edgecolor="k", linewidth=0.3)
+        ax[3].scatter(0, 0, marker="*", s=180, color=colors[0], edgecolor="k", zorder=3)
+        ax[3].set_title(f"{well} — shift vs day {days[0]} (o=to-first, □=anchored)")
+        ax[3].set_xlabel("x shift (px)")
+        ax[3].set_ylabel("y shift (px)")
+        ax[3].invert_yaxis()
+        ax[3].axhline(0, color="0.9", lw=0.5)
+        ax[3].axvline(0, color="0.9", lw=0.5)
+        ax[3].grid(True, alpha=0.2)
 
         sm = plt.cm.ScalarMappable(cmap="turbo", norm=plt.Normalize(days[0], days[-1]))
-        fig.colorbar(sm, ax=ax[1], fraction=0.046, pad=0.02, label="day")
+        fig.colorbar(sm, ax=ax[2], fraction=0.046, pad=0.02, label="day")
 
         out = OUT / f"{well}_day_overlay.png"
         fig.savefig(out, dpi=130)
         plt.close(fig)
-        drift = np.hypot(xs[-1], ys[-1])
-        print(f"{well}: {len(days)} days {days} | net drift day{days[0]}->day{days[-1]} = "
-              f"{drift:.1f} px -> {out}")
+
+        # per-day comparison table: does anchored recover the late days?
+        print(f"\n=== {well} — to-first vs anchored (masked; re-anchor thresh "
+              f"{args.anchor_corr_thresh}) ===")
+        print(f"{'day':>4} {'first_px':>9} {'first_corr':>10} {'anch_px':>8} "
+              f"{'anch_corr':>9} {'reanchored':>10}")
+        for i, d in enumerate(days):
+            fmag = np.hypot(*sf[i])
+            amag = np.hypot(*sa[i])
+            print(f"{d:>4} {fmag:>9.0f} {pf[i]:>10.3f} {amag:>8.0f} {pa[i]:>9.3f} "
+                  f"{'YES' if ra[i] else '':>10}")
+        print(f"net drift day{days[0]}->day{days[-1]}: to-first={np.hypot(*sf[-1]):.0f} px, "
+              f"anchored={np.hypot(*sa[-1]):.0f} px -> {out}")
 
 
 if __name__ == "__main__":
