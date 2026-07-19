@@ -366,15 +366,33 @@ def standardize_to_cyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
     raise ValueError(f"Cannot standardize shape {arr.shape} with axes {axes} to CYX")
 
 
+def _plate_offset(plate_offsets: dict | None, day: Any) -> tuple[float, float]:
+    """Plate-remount prior (dy, dx) for a timepoint, or (0, 0) when absent (default = off)."""
+    if not plate_offsets:
+        return (0.0, 0.0)
+    dy, dx = plate_offsets.get(day, (0.0, 0.0))
+    return (float(dy), float(dx))
+
+
 def _anchored_shifts(
     stable_frames: np.ndarray,
     thresh: float,
+    plate_shifts: list[tuple[float, float]] | None = None,
 ) -> tuple[list[tuple[float, float]], list[float], list[bool]]:
     """Per-timepoint net (dy, dx)-to-t0, post-corr, and reanchored flag. Single source of the
     anchor math; mirrors scripts/plot_day_shift_overlay.register_anchored on the masked engine:
     register to the current anchor; if post-corr < thresh and t>=2 re-anchor to the LAST GOOD
     frame (never the current one) and re-register; compose net = anchor_net + pairwise; only
-    frames with post >= thresh become eligible future anchors. No image application."""
+    frames with post >= thresh become eligible future anchors. No image application.
+
+    ``plate_shifts`` (default None = byte-identical): per-timepoint plate-remount prior (dy, dx).
+    When given, each frame is pre-shifted by its prior so registration sees only the residual
+    drift, and the prior is added back into the returned net (plate-first, then per-well residual)."""
+    if plate_shifts is not None:
+        stable_frames = [
+            frame if (pdy == 0.0 and pdx == 0.0) else apply_shift(frame, pdy, pdx)
+            for frame, (pdy, pdx) in zip(stable_frames, plate_shifts, strict=True)
+        ]
     anchor, anchor_net = stable_frames[0], (0.0, 0.0)
     last_good_img, last_good_net = stable_frames[0], (0.0, 0.0)
     shifts: list[tuple[float, float]] = [(0.0, 0.0)]
@@ -400,6 +418,11 @@ def _anchored_shifts(
         reanchored.append(did)
         if p >= thresh:  # trustworthy → eligible future anchor
             last_good_img, last_good_net = moving, net
+    if plate_shifts is not None:  # net = plate prior + residual (total, for apply_shift + crop)
+        shifts = [
+            (net[0] + pdy, net[1] + pdx)
+            for net, (pdy, pdx) in zip(shifts, plate_shifts, strict=True)
+        ]
     return shifts, post, reanchored
 
 
@@ -414,11 +437,19 @@ def register_stack(
     ref_mode: str = "to_first",
     anchor_corr_thresh: float = 0.10,
     min_post_correlation: float = 0.07,
+    plate_offsets: dict | None = None,
 ) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
     # Register on the RAW stable channel with masked phase correlation (ignore background
     # below p20). Do NOT clip+blur here: it smears the sparse neuron signal and makes the
     # peak lock onto image edges, producing axis-locked 500-1400 px garbage shifts (see docs).
     reference = stack[0, alignment_channel_index]
+
+    # Plate-remount prior per timepoint (default None → all-zero → byte-identical to no correction).
+    # Composed plate-first: the moving frame is pre-shifted by its prior so registration measures
+    # only the per-well residual; net = prior + residual feeds both apply_shift and the crop.
+    plate_shifts = (
+        [_plate_offset(plate_offsets, row["day"]) for row in rows] if plate_offsets else None
+    )
 
     if ref_mode == "anchored":
         return _register_stack_anchored(
@@ -431,6 +462,7 @@ def register_stack(
             robust_crop=robust_crop,
             anchor_corr_thresh=anchor_corr_thresh,
             min_post_correlation=min_post_correlation,
+            plate_shifts=plate_shifts,
         )
 
     registered = [stack[0]]
@@ -454,12 +486,15 @@ def register_stack(
 
     for time_index in range(1, stack.shape[0]):
         moving = stack[time_index, alignment_channel_index]
-        _, (dy, dx), error = register_translation(
+        pdy, pdx = plate_shifts[time_index] if plate_shifts else (0.0, 0.0)
+        reg_moving = moving if (pdy == 0.0 and pdx == 0.0) else apply_shift(moving, pdy, pdx)
+        _, (rdy, rdx), error = register_translation(
             reference,
-            moving,
+            reg_moving,
             robust_preprocess=False,
             mask_percentile=20.0,
         )
+        dy, dx = pdy + rdy, pdx + rdx  # net = plate prior + per-well residual
         shifted_channel = apply_shift(moving, dy, dx)
         registered.append(apply_shift(stack[time_index], dy, dx))
         shifts.append((dy, dx))
@@ -508,12 +543,15 @@ def _register_stack_anchored(
     robust_crop: bool,
     anchor_corr_thresh: float,
     min_post_correlation: float,
+    plate_shifts: list[tuple[float, float]] | None = None,
 ) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
     """Anchored/masked temporal registration. Net shifts come from _anchored_shifts (the single
     source of anchor math); we apply each net shift to ALL channels and feed the net shifts to
     the common-overlap crop, exactly like the to_first path."""
     stable_frames = stack[:, alignment_channel_index]
-    net_shifts, post_corrs, reanchored_flags = _anchored_shifts(stable_frames, anchor_corr_thresh)
+    net_shifts, post_corrs, reanchored_flags = _anchored_shifts(
+        stable_frames, anchor_corr_thresh, plate_shifts=plate_shifts
+    )
 
     # Reconstruct which frame served as the anchor per timepoint (for auditable anchor_ref_day):
     # anchor is day0 until a re-anchor promotes the last good frame; last-good tracks post>=thresh.

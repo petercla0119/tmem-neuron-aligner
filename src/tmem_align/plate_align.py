@@ -237,6 +237,7 @@ def detect_plate_events(
     jump_thresh: float = 150.0,
     min_fraction: float = 0.5,
     min_r2: float = 0.7,
+    min_wells: int = 20,
 ) -> list:
     """Find day(s) where wells jump coherently with position structure (a plate remount).
 
@@ -245,9 +246,14 @@ def detect_plate_events(
     mask the jump. A day qualifies iff the coherent fraction ≥ ``min_fraction`` **and** the linear
     fit of the increment on position has R² ≥ ``min_r2``. Returns the list of event days (possibly
     empty = no-op, safe default).
+
+    The column-structure R² is only meaningful over many wells — a 3-parameter linear fit
+    saturates (R²→1) on a handful of points, so fewer than ``min_wells`` returns no events.
     """
     S = np.asarray(shift_stack, dtype=np.float64)
     p = np.asarray(positions, dtype=np.float64)
+    if len(p) < min_wells:
+        return []
     q = p - p.mean(axis=0)
     events = []
     for t in range(1, len(days)):

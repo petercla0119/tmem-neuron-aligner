@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +29,16 @@ from run_260213_longitudinal_pilot import (
     load_nd2_cyx,
     register_stack,
 )
+from tmem_align.plate_align import (
+    detect_plate_events,
+    fit_plate_transform,
+    plate_offset_for_well,
+)
 from tmem_align.registration_qc import crop_tcyx
+from tmem_align.stage_qc import read_nd2_stage_coordinates
+
+# 260213 optics; override with --pixel-size-um (real optics drift a few %).
+DEFAULT_PIXEL_SIZE_UM = 0.647676
 
 
 ROW_CONDITIONS = {
@@ -82,6 +93,20 @@ def parse_args() -> argparse.Namespace:
         default=0.07,
         help="QC gate: a timepoint fails when its post-registration correlation is below this.",
     )
+    parser.add_argument(
+        "--plate-correct",
+        action="store_true",
+        help="Enable plate-remount correction: a first (uncorrected) registration pass detects a "
+        "coherent plate-wide jump, fits one global rigid transform per event, and applies it as a "
+        "per-well prior in a second pass (rescues weak wells). Default off = per-well only, "
+        "byte-identical to before.",
+    )
+    parser.add_argument(
+        "--pixel-size-um",
+        type=float,
+        default=DEFAULT_PIXEL_SIZE_UM,
+        help="Pixel size (µm/px) used to convert stage XY to pixels for the plate fit.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -96,6 +121,7 @@ def _process_one_well(
     ref_mode: str = "to_first",
     anchor_corr_thresh: float = 0.10,
     min_post_correlation: float = 0.07,
+    plate_offsets: dict[int, tuple[float, float]] | None = None,
 ) -> dict[str, Any]:
     try:
         if len(rows) != len(days):
@@ -114,6 +140,7 @@ def _process_one_well(
             ref_mode=ref_mode,
             anchor_corr_thresh=anchor_corr_thresh,
             min_post_correlation=min_post_correlation,
+            plate_offsets=plate_offsets,
         )
         condition = condition_for_well(well)
         for row in well_qc:
@@ -160,6 +187,141 @@ def _process_one_well(
         }
 
 
+def _run_all_wells(
+    well_items: list[tuple[str, list[dict[str, Any]]]],
+    args: argparse.Namespace,
+    plate_offsets_by_well: dict[str, dict[int, tuple[float, float]]] | None = None,
+) -> tuple[list[dict[str, Any]], list[pd.DataFrame], list[dict[str, Any]]]:
+    """Run every well through _process_one_well (parallel or sequential), threading each well's
+    plate prior (or None = off). Returns (qc_rows, metric_tables, failure_rows)."""
+    qc_rows: list[dict[str, Any]] = []
+    metric_tables: list[pd.DataFrame] = []
+    failure_rows: list[dict[str, Any]] = []
+    total = len(well_items)
+    offsets = plate_offsets_by_well or {}
+
+    def _collect(well: str, result: dict[str, Any]) -> None:
+        if result["error"]:
+            failure_rows.append(result["error"])
+            print(f"  failed {well}: {result['error']['error']}", flush=True)
+        else:
+            qc_rows.extend(result["qc"])
+            if result["metrics"] is not None:
+                metric_tables.append(result["metrics"])
+
+    if args.workers > 1:
+        with ProcessPoolExecutor(max_workers=args.workers) as pool:
+            futures = {
+                pool.submit(
+                    _process_one_well, well, rows, args.days, args.channels,
+                    args.max_sites, args.max_read_bytes,
+                    args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
+                    offsets.get(well),
+                ): (idx, well)
+                for idx, (well, rows) in enumerate(well_items, start=1)
+            }
+            for future in as_completed(futures):
+                idx, well = futures[future]
+                result = future.result()
+                print(f"[{idx}/{total}] {well} done", flush=True)
+                _collect(well, result)
+    else:
+        for index, (well, rows) in enumerate(well_items, start=1):
+            print(f"[{index}/{total}] {well} loading {len(rows)} days", flush=True)
+            result = _process_one_well(
+                well, rows, args.days, args.channels,
+                args.max_sites, args.max_read_bytes,
+                args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
+                offsets.get(well),
+            )
+            _collect(well, result)
+    return qc_rows, metric_tables, failure_rows
+
+
+def _plate_prepass(
+    selected: dict[str, list[dict[str, Any]]],
+    pass1_qc: list[dict[str, Any]],
+    args: argparse.Namespace,
+    output: Path,
+) -> dict[str, dict[int, tuple[float, float]]]:
+    """Detect plate remount event(s) from the first (uncorrected) pass and fit one global rigid
+    transform per event; return per-well per-day plate priors (dy, dx).
+
+    Positions come from ND2 stage XY (µm→px via args.pixel_size_um). The fit uses only wells that
+    self-registered (post-corr gate, inside fit_plate_transform); priors are then computed for
+    EVERY well with a known position — weak wells included (the rescue). Empty return = no event
+    detected = no-op (safe default). Writes plate_transform.json (audit)."""
+    days = list(args.days)
+    px_um = args.pixel_size_um
+
+    # Per-well plate position (pixels) from stage XY at the reference (first requested) day.
+    pos_by_well: dict[str, tuple[float, float]] = {}
+    for well, rows in selected.items():
+        try:
+            coords = read_nd2_stage_coordinates(rows[0]["path"])
+        except Exception as exc:  # metadata-only read; a bad file must not sink the pre-pass
+            print(f"Plate pre-pass: stage XY read failed for {well}: {exc!r}")
+            continue
+        if coords["stage_x_um"] is None or coords["stage_y_um"] is None:
+            continue
+        pos_by_well[well] = (coords["stage_x_um"] / px_um, coords["stage_y_um"] / px_um)
+
+    qc_by_well: dict[str, dict[int, dict[str, Any]]] = defaultdict(dict)
+    for row in pass1_qc:
+        qc_by_well[row["well"]][int(row["timepoint_day"])] = row
+
+    fit_wells = [
+        w for w in selected if w in pos_by_well and all(d in qc_by_well[w] for d in days)
+    ]
+    if len(fit_wells) < 3:
+        print(f"Plate pre-pass: only {len(fit_wells)} wells with position+shifts; skipping.")
+        return {}
+
+    positions = np.array([pos_by_well[w] for w in fit_wells], dtype=float)
+    shift_stack = np.zeros((len(days), len(fit_wells), 2))
+    post_stack = np.zeros((len(days), len(fit_wells)))
+    for di, day in enumerate(days):
+        for wi, well in enumerate(fit_wells):
+            qc = qc_by_well[well][day]
+            shift_stack[di, wi] = (qc["estimated_y_shift"], qc["estimated_x_shift"])
+            post_stack[di, wi] = qc["post_registration_correlation"]
+
+    events = detect_plate_events(days, shift_stack, positions)
+    plate_events = []
+    plate_offsets: dict[str, dict[int, tuple[float, float]]] = defaultdict(dict)
+    for event_day in events:
+        di = days.index(event_day)
+        event = fit_plate_transform(
+            positions,
+            shift_stack[di],
+            day=event_day,
+            post_corr=post_stack[di],
+            qc_gate=args.min_post_correlation,
+        )
+        if event is None:
+            print(f"Plate pre-pass: day {event_day} detected but fit rejected; skipping it.")
+            continue
+        plate_events.append(event)
+        # Carry the prior forward to the event day and every later day, for ALL positioned wells.
+        # ponytail: multi-event priors sum per-well displacements (exact for one event, small-angle
+        # approx for several); use compose_transforms if a plate ever remounts more than once.
+        for well, pos in pos_by_well.items():
+            off = plate_offset_for_well(event, pos)
+            for day in days:
+                if day >= event_day:
+                    prev = plate_offsets[well].get(day, (0.0, 0.0))
+                    plate_offsets[well][day] = (prev[0] + off[0], prev[1] + off[1])
+
+    (output / "plate_transform.json").write_text(
+        json.dumps([e.to_jsonable() for e in plate_events], indent=2), encoding="utf-8"
+    )
+    print(
+        f"Plate pre-pass: {len(plate_events)} event(s) fitted from {len(fit_wells)} wells; "
+        f"wrote {output / 'plate_transform.json'}."
+    )
+    return {well: dict(offs) for well, offs in plate_offsets.items()}
+
+
 def main() -> None:
     args = parse_args()
     output = args.output.expanduser().resolve()
@@ -178,49 +340,18 @@ def main() -> None:
         print(f"Wells selected: {len(selected)}")
         return
 
-    qc_rows: list[dict[str, Any]] = []
-    metric_tables: list[pd.DataFrame] = []
-    failure_rows: list[dict[str, Any]] = []
-
-    total = len(selected)
     well_items = list(selected.items())
 
-    if args.workers > 1:
-        with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = {
-                pool.submit(
-                    _process_one_well, well, rows, args.days, args.channels,
-                    args.max_sites, args.max_read_bytes,
-                    args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
-                ): (idx, well)
-                for idx, (well, rows) in enumerate(well_items, start=1)
-            }
-            for future in as_completed(futures):
-                idx, well = futures[future]
-                result = future.result()
-                print(f"[{idx}/{total}] {well} done", flush=True)
-                if result["error"]:
-                    failure_rows.append(result["error"])
-                    print(f"  failed {well}: {result['error']['error']}", flush=True)
-                else:
-                    qc_rows.extend(result["qc"])
-                    if result["metrics"] is not None:
-                        metric_tables.append(result["metrics"])
-    else:
-        for index, (well, rows) in enumerate(well_items, start=1):
-            print(f"[{index}/{total}] {well} loading {len(rows)} days", flush=True)
-            result = _process_one_well(
-                well, rows, args.days, args.channels,
-                args.max_sites, args.max_read_bytes,
-                args.ref_mode, args.anchor_corr_thresh, args.min_post_correlation,
-            )
-            if result["error"]:
-                failure_rows.append(result["error"])
-                print(f"  failed {well}: {result['error']['error']}", flush=True)
-            else:
-                qc_rows.extend(result["qc"])
-                if result["metrics"] is not None:
-                    metric_tables.append(result["metrics"])
+    plate_offsets_by_well: dict[str, dict[int, tuple[float, float]]] | None = None
+    if args.plate_correct:
+        print("Plate correction on: running first (uncorrected) registration pass ...", flush=True)
+        pass1_qc, _, _ = _run_all_wells(well_items, args, None)
+        plate_offsets_by_well = _plate_prepass(selected, pass1_qc, args, output)
+        print("Plate correction: second (plate-corrected) registration pass ...", flush=True)
+
+    qc_rows, metric_tables, failure_rows = _run_all_wells(
+        well_items, args, plate_offsets_by_well
+    )
 
     qc = pd.DataFrame(qc_rows)
     failures = pd.DataFrame(
