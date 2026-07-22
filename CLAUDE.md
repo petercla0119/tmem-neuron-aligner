@@ -64,6 +64,10 @@ Wells follow a four-row alphabetical cycle (C/D/E/F, G/H/I/J, K/L/M/N):
 
 The CLI enforces this via `mcherry_analysis_valid` in the plate map.
 
+## Workflow
+
+Branch strategy is in `BRANCHES.md`.
+
 ## Key constraints
 
 - `zarr<3` is pinned (zarr v3 API incompatibility)

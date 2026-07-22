@@ -306,3 +306,60 @@ All downstream scripts that have their data dependencies satisfied have been run
 | Overlap audit | via `build_overlap_only_audit.py` | No — needs full pipeline data |
 
 **What remains to fully replicate:** The full per-well pipeline (stitch → register → crop ROIs → quantify) across all wells and all 10 days, which produces the `TMEM106B_processed/dashboard/` and `full_mcherry_valid_queue_abc/` data. This is a much larger computation than the batch/pilot scripts.
+
+## 17. All-day batch (192 wells, all 10 timepoints)
+
+**Purpose:** The 3-day batch (days 8/12/16) confirmed the TMEM106B-dependent mCherry redistribution signal across the full plate. The 6-well pilot (days 8/25/39) showed the effect peaks around day 25 then partially reverses — but with only n=3 pairs, that temporal profile is underpowered. Running all 192 wells across all 10 imaging days (8/12/16/20/25/29/32/36/39) tests whether the day-25 peak and day-39 recovery hold at plate scale (n=48 per condition per day), giving a complete temporal arc of the TMEM106B-dependent lysosomal leakage phenotype.
+
+**Command:**
+```
+python scripts/run_260213_all_wells_batch.py \
+  --data-root /Users/pmihack/claire/tmem_2026/data/260213_Feb16recopy_HYdiff_landingpadlines_survival_384well1 \
+  --output reports/260213_all_wells_all_days \
+  --days 8 12 16 20 25 29 32 36 39 \
+  --workers 10
+```
+
+**Status:** Complete. 192/192 wells, zero failures, 1918/1920 registration QC pass. 5m 9s wall, 7.5 GB RSS, 10 workers.
+
+**Results — full temporal arc (mean D:P ratio, n=48 wells per condition):**
+
+| Day | Primary (TMEM106B+mCherry) | Control (mCherry only) | Delta |
+|-----|---------------------------|----------------------|-------|
+| 8 | 3.29 | 2.53 | 0.76 |
+| 12 | 4.31 | 2.88 | 1.43 |
+| 16 | 4.47 | 2.76 | 1.71 |
+| 20 | 4.75 | 3.08 | 1.67 |
+| **25** | **6.81** | **4.01** | **2.80** |
+| 29 | 5.62 | 3.61 | 2.01 |
+| 32 | 5.57 | 3.49 | 2.08 |
+| 36 | 5.43 | 3.34 | 2.09 |
+| 39 | 5.27 | 3.43 | 1.84 |
+
+**Key findings:**
+- Day-25 peak confirmed at plate scale: D:P ratio peaks in both conditions at day 25, then partially recovers
+- The primary–control delta widens from 0.76 (day 8) to 2.80 (day 25), then stabilizes at ~1.8–2.1 (days 29–39)
+- Controls also show a day-25 bump (2.53 → 4.01) — this may reflect a shared environmental event (media change, passage, imaging artifact) rather than biology
+- The TMEM106B-specific excess (delta) peaks at day 25 and remains elevated through day 39, consistent with irreversible lysosomal damage followed by a new steady state
+- Puncta counts increase at later timepoints (305 → 432 for primary, 270 → 409 for control), suggesting lysosome biogenesis or accumulation
+
+**Output location:** `reports/260213_all_wells_all_days/`
+
+## 18. Package/script consolidation
+
+**Branch:** `feat/consolidate-package` → PR [#2](https://github.com/petercla0119/tmem-neuron-aligner/pull/2) to `csp-dev`
+
+**Problem:** The package (`src/tmem_align/`) and scripts (`scripts/`) had diverged — the package was a clean-room design from before real data, the scripts evolved with real microscopy data but never backported innovations. Two registration paths (with/without preprocessing), two quantification approaches (Otsu vs DoG+MAD), dead code.
+
+**Changes (6 commits, net −113 lines):**
+
+| Commit | What |
+|--------|------|
+| `303af94` | `register.py`: add `robust_preprocess=True` (5/99 clip + Gaussian smooth), return phase correlation error (3-tuple) |
+| `e9047ef` | Wire `mcherry_metrics` into CLI + 3 scripts, add `quantify_mcherry_from_file()`, delete `quantify.py` |
+| `975da95` | `run_260213_longitudinal_pilot.py`: replace direct `phase_cross_correlation` with package `register_translation()` |
+| `7480c13` | Delete dead code: `convert_nd2.py`, `estimate_tile_shift()` |
+| `c3af277` | Fix operator precedence bug in `build_applicable_nd2_manifest.py`, update `_remove_small_objects` to new skimage `max_size` API |
+| `771dbd4` | Add `test_register.py` (4 tests), `test_mcherry_metrics.py` (4 tests), fix test imports via `conftest.py` |
+
+**Status:** 15/15 tests passing, ruff clean. PR open.

@@ -182,11 +182,9 @@ def detect_puncta(
 
     max_area = max(cfg.min_puncta_area, int(foreground.sum() * cfg.max_puncta_area_fraction))
     labels = measure.label(puncta)
-    keep = np.zeros_like(puncta, dtype=bool)
-    for prop in measure.regionprops(labels):
-        if cfg.min_puncta_area <= prop.area <= max_area:
-            keep[labels == prop.label] = True
-    return keep
+    keep_ids = [p.label for p in measure.regionprops(labels)
+                if cfg.min_puncta_area <= p.area <= max_area]
+    return np.isin(labels, keep_ids) if keep_ids else np.zeros_like(puncta, dtype=bool)
 
 
 def _remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
