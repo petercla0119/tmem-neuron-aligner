@@ -76,9 +76,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ref-mode",
         choices=["to_first", "anchored"],
-        default="to_first",
-        help="Temporal registration mode: 'to_first' (register every day to day 0, default) or "
-        "'anchored' (re-anchor to the last good frame when correlation drops).",
+        default="anchored",
+        help="Temporal registration mode: 'anchored' (re-anchor to last good frame when "
+        "correlation drops, default) or 'to_first' (register every day to day 0).",
     )
     parser.add_argument(
         "--anchor-corr-thresh",
