@@ -123,6 +123,11 @@ def stitch_command(config_path: str, plate: str, well: str) -> None:
 @click.option("--well", required=True)
 @click.option("--reference-day", default=None)
 def register_well_command(config_path: str, plate: str, well: str, reference_day: str | None) -> None:
+    raise click.ClickException(
+        "register-well is not safe: it registers on a max-projection that includes the mCherry "
+        "channel, locking onto illumination instead of cells (500–1400 px garbage shifts, "
+        "post-corr ~0.005). Use run_260213_all_wells_batch.py with --ref-mode anchored instead."
+    )
     cfg = load_config(config_path)
     plate_map = load_plate_map(cfg)
     rows = plate_map[(plate_map["plate"] == plate) & (plate_map["well"] == well)].copy()
