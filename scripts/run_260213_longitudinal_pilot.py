@@ -20,6 +20,8 @@ import numpy as np
 import pandas as pd
 import tifffile as tif
 from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
+from tmem_align.io import find_images
+from tmem_align.preprocess import apply_ic_field, calculate_ic_field
 from tmem_align.register import apply_shift, register_translation
 from tmem_align.registration_qc import (
     classify_registration_qc,
@@ -101,6 +103,18 @@ def parse_args() -> argparse.Namespace:
         default=0.07,
         help="QC gate: a timepoint fails when its post-registration correlation is below this.",
     )
+    parser.add_argument(
+        "--illumination-correct",
+        action="store_true",
+        help="Apply per-timepoint illumination correction (flatfield) to each frame before "
+        "registration and quantification. Off by default so the baseline reproduction is unchanged.",
+    )
+    parser.add_argument(
+        "--ic-sample-fraction",
+        type=float,
+        default=0.25,
+        help="Fraction of each timepoint's images sampled (seeded) to build the IC field.",
+    )
     return parser.parse_args()
 
 
@@ -115,8 +129,13 @@ def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
         ref_mode,
         anchor_corr_thresh,
         min_post_correlation,
+        ic_fields,
     ) = args_tuple
     loaded = [load_nd2_cyx(row["path"], max_sites, max_read_bytes) for row in rows]
+    if ic_fields:
+        # Flatfield-correct each day's frame by its timepoint's IC field (keyed by parent dir).
+        for item, row in zip(loaded, rows, strict=True):
+            item["array"] = apply_ic_field(item["array"], ic_fields[row["path"].parent.name])
     channel_names = loaded[0]["channel_names"]
     alignment_index = choose_channel_index(channel_names, channels[0])
     mcherry_index = choose_channel_index(channel_names, channels[1])
@@ -142,6 +161,7 @@ def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
             "file_name": row["path"].name,
             "mcherry_channel": channel_names[mcherry_index],
             "registration_channel": channel_names[alignment_index],
+            "illumination_corrected": bool(ic_fields),
         }
         for row in rows
     ]
@@ -192,6 +212,19 @@ def main() -> None:
     stacks: dict[str, np.ndarray] = {}
     crops: dict[str, dict[str, int]] = {}
 
+    ic_fields: dict[str, np.ndarray] = {}
+    if args.illumination_correct:
+        tp_dirs = sorted(
+            {row["path"].parent for rows in selected.values() for row in rows},
+            key=lambda p: p.name,
+        )
+        for d in tp_dirs:
+            imgs = find_images(d)
+            ic_fields[d.name] = calculate_ic_field(
+                imgs, sample_fraction=args.ic_sample_fraction, seed=0
+            )
+            print(f"IC field for {d.name}: {len(imgs)} images -> shape {ic_fields[d.name].shape}")
+
     well_args = [
         (
             well,
@@ -203,6 +236,7 @@ def main() -> None:
             args.ref_mode,
             args.anchor_corr_thresh,
             args.min_post_correlation,
+            ic_fields,
         )
         for well in wells
     ]
@@ -917,6 +951,7 @@ def write_run_log(
         f"Control well: {args.control_well}",
         f"Experimental well: {args.experimental_well}",
         f"Channels requested: {args.channels}",
+        f"Illumination correction: {args.illumination_correct} (ic_sample_fraction={args.ic_sample_fraction})",
         f"Max timepoints: {args.max_timepoints}",
         f"Max sites: {args.max_sites}",
         "",
