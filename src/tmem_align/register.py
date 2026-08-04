@@ -31,7 +31,7 @@ def apply_shift(image: np.ndarray, dy: float, dx: float) -> np.ndarray:
         shift_vec = (dy, dx)
     else:
         shift_vec = (0,) * (arr.ndim - 2) + (dy, dx)
-    return ndi_shift(arr, shift=shift_vec, order=1, mode="constant", cval=0).astype(arr.dtype)
+    return ndi_shift(arr, shift=shift_vec, order=3, mode="constant", cval=0).astype(arr.dtype)
 
 
 def register_file_to_reference(
