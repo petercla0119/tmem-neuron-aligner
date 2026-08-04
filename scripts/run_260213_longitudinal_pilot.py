@@ -19,12 +19,10 @@ import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
 import tifffile as tif
-from skimage.registration import phase_cross_correlation
-
 from tmem_align.analysis.mcherry_metrics import quantify_mcherry_timeseries
 from tmem_align.io import find_images
 from tmem_align.preprocess import apply_ic_field, calculate_ic_field
-from tmem_align.register import apply_shift
+from tmem_align.register import apply_shift, register_translation
 from tmem_align.registration_qc import (
     classify_registration_qc,
     common_overlap_crop,
@@ -59,7 +57,52 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-read-bytes", type=int, default=2 * 1024**3)
-    parser.add_argument("--workers", type=int, default=1, help="Parallel workers for per-well processing (default 1 = sequential).")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Parallel workers for per-well processing (default 1 = sequential).",
+    )
+    parser.add_argument(
+        "--exclude-days",
+        nargs="+",
+        type=int,
+        default=[],
+        metavar="DAY",
+        help="Drop specific imaging days before registration (e.g. --exclude-days 25 for F05).",
+    )
+    parser.add_argument(
+        "--robust-crop",
+        action="store_true",
+        default=True,
+        help="Use robust common-overlap crop (clips shift outliers at 90th percentile). On by default.",
+    )
+    parser.add_argument(
+        "--no-robust-crop",
+        dest="robust_crop",
+        action="store_false",
+        help="Disable robust crop — use strict intersection of all shifts (old behaviour).",
+    )
+    parser.add_argument(
+        "--ref-mode",
+        choices=["to_first", "anchored"],
+        default="to_first",
+        help="Temporal registration mode: 'to_first' (register every day to day 0, default) or "
+        "'anchored' (re-anchor to the last good frame when correlation drops).",
+    )
+    parser.add_argument(
+        "--anchor-corr-thresh",
+        type=float,
+        default=0.10,
+        help="Anchored mode: re-anchor when post-corr to the current anchor drops below this "
+        "(calibrated on 260213 real data). Ignored for --ref-mode to_first.",
+    )
+    parser.add_argument(
+        "--min-post-correlation",
+        type=float,
+        default=0.07,
+        help="QC gate: a timepoint fails when its post-registration correlation is below this.",
+    )
     parser.add_argument(
         "--illumination-correct",
         action="store_true",
@@ -76,7 +119,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
-    well, rows, channels, max_sites, max_read_bytes, ic_fields = args_tuple
+    (
+        well,
+        rows,
+        channels,
+        max_sites,
+        max_read_bytes,
+        robust_crop,
+        ref_mode,
+        anchor_corr_thresh,
+        min_post_correlation,
+        ic_fields,
+    ) = args_tuple
     loaded = [load_nd2_cyx(row["path"], max_sites, max_read_bytes) for row in rows]
     if ic_fields:
         # Flatfield-correct each day's frame by its timepoint's IC field (keyed by parent dir).
@@ -92,6 +146,10 @@ def _process_one_well_pilot(args_tuple: tuple) -> dict[str, Any]:
         rows=rows,
         alignment_channel_index=alignment_index,
         alignment_channel_label=channel_names[alignment_index],
+        robust_crop=robust_crop,
+        ref_mode=ref_mode,
+        anchor_corr_thresh=anchor_corr_thresh,
+        min_post_correlation=min_post_correlation,
     )
     common = crop_tcyx(registered, common_crop)
     metadata_rows = [
@@ -126,13 +184,20 @@ def main() -> None:
     started = datetime.now().isoformat(timespec="seconds")
     data_root = args.data_root.expanduser().resolve()
     wells = [args.control_well.upper(), args.experimental_well.upper()]
-    selected = select_pilot_files(data_root, wells, max_timepoints=args.max_timepoints)
+    selected = select_pilot_files(
+        data_root,
+        wells,
+        max_timepoints=args.max_timepoints,
+        exclude_days=set(args.exclude_days),
+    )
     if not selected:
         raise FileNotFoundError(f"No pilot files found under {data_root} for {wells}")
 
     inventory = build_selected_inventory(selected)
     inventory_path = output / (
-        "selected_pilot_files.csv" if (output / "dataset_inventory.csv").exists() else "dataset_inventory.csv"
+        "selected_pilot_files.csv"
+        if (output / "dataset_inventory.csv").exists()
+        else "dataset_inventory.csv"
     )
     inventory.to_csv(inventory_path, index=False)
 
@@ -161,7 +226,18 @@ def main() -> None:
             print(f"IC field for {d.name}: {len(imgs)} images -> shape {ic_fields[d.name].shape}")
 
     well_args = [
-        (well, selected[well], args.channels, args.max_sites, args.max_read_bytes, ic_fields)
+        (
+            well,
+            selected[well],
+            args.channels,
+            args.max_sites,
+            args.max_read_bytes,
+            args.robust_crop,
+            args.ref_mode,
+            args.anchor_corr_thresh,
+            args.min_post_correlation,
+            ic_fields,
+        )
         for well in wells
     ]
 
@@ -201,9 +277,17 @@ def main() -> None:
     write_mcherry_timeseries_figure(stacks, selected, figures / "aligned_timeseries_mcherry.png")
     write_mcherry_timeseries_gifs(stacks, figures)
     write_metric_figure(measurements, figures / "mcherry_metric_over_time.png")
-    write_pi_readme(output, data_root, args, inventory, qc, measurements, summary, selected, started)
+    write_pi_readme(
+        output, data_root, args, inventory, qc, measurements, summary, selected, started
+    )
     write_methods(output, args, selected)
-    write_run_log(output, args, selected, started, extra=[f"Completed at {datetime.now().isoformat(timespec='seconds')}"])
+    write_run_log(
+        output,
+        args,
+        selected,
+        started,
+        extra=[f"Completed at {datetime.now().isoformat(timespec='seconds')}"],
+    )
 
     print_terminal_summary(output, data_root, selected, qc, measurements)
 
@@ -213,7 +297,9 @@ def select_pilot_files(
     wells: list[str],
     *,
     max_timepoints: int,
+    exclude_days: set[int] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
+    _exclude = exclude_days or set()
     selected: dict[str, list[dict[str, Any]]] = {}
     for well in wells:
         candidates = []
@@ -221,7 +307,7 @@ def select_pilot_files(
             if "brightfield" in path.name.lower():
                 continue
             day = infer_day(path.name)
-            if day is None:
+            if day is None or day in _exclude:
                 continue
             candidates.append({"well": well, "day": day, "path": path})
         candidates.sort(key=lambda row: (row["day"], str(row["path"])))
@@ -240,7 +326,9 @@ def build_selected_inventory(selected: dict[str, list[dict[str, Any]]]) -> pd.Da
                     "filename": path.name,
                     "extension": ".nd2",
                     "file_size_bytes": path.stat().st_size,
-                    "modified_time": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+                    "modified_time": datetime.fromtimestamp(path.stat().st_mtime).isoformat(
+                        timespec="seconds"
+                    ),
                     "inferred_well": well,
                     "inferred_day_timepoint": item["day"],
                     "inferred_channel": infer_channel_string(path.name),
@@ -268,9 +356,13 @@ def load_nd2_cyx(path: Path, max_sites: int, max_read_bytes: int) -> dict[str, A
                 selection.append(slice(None))
                 remaining_axes.append(axis)
         selected = data[tuple(selection)]
-        read_bytes = int(np.prod(selected.shape, dtype=np.int64)) * np.dtype(selected.dtype).itemsize
+        read_bytes = (
+            int(np.prod(selected.shape, dtype=np.int64)) * np.dtype(selected.dtype).itemsize
+        )
         if read_bytes > max_read_bytes:
-            raise ValueError(f"{path} selected read is {read_bytes:,} bytes, above {max_read_bytes:,}")
+            raise ValueError(
+                f"{path} selected read is {read_bytes:,} bytes, above {max_read_bytes:,}"
+            )
         arr = np.asarray(selected.compute())
 
         channels = []
@@ -308,6 +400,66 @@ def standardize_to_cyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
     raise ValueError(f"Cannot standardize shape {arr.shape} with axes {axes} to CYX")
 
 
+def _plate_offset(plate_offsets: dict | None, day: Any) -> tuple[float, float]:
+    """Plate-remount prior (dy, dx) for a timepoint, or (0, 0) when absent (default = off)."""
+    if not plate_offsets:
+        return (0.0, 0.0)
+    dy, dx = plate_offsets.get(day, (0.0, 0.0))
+    return (float(dy), float(dx))
+
+
+def _anchored_shifts(
+    stable_frames: np.ndarray,
+    thresh: float,
+    plate_shifts: list[tuple[float, float]] | None = None,
+) -> tuple[list[tuple[float, float]], list[float], list[bool]]:
+    """Per-timepoint net (dy, dx)-to-t0, post-corr, and reanchored flag. Single source of the
+    anchor math; mirrors scripts/plot_day_shift_overlay.register_anchored on the masked engine:
+    register to the current anchor; if post-corr < thresh and t>=2 re-anchor to the LAST GOOD
+    frame (never the current one) and re-register; compose net = anchor_net + pairwise; only
+    frames with post >= thresh become eligible future anchors. No image application.
+
+    ``plate_shifts`` (default None = byte-identical): per-timepoint plate-remount prior (dy, dx).
+    When given, each frame is pre-shifted by its prior so registration sees only the residual
+    drift, and the prior is added back into the returned net (plate-first, then per-well residual)."""
+    if plate_shifts is not None:
+        stable_frames = [
+            frame if (pdy == 0.0 and pdx == 0.0) else apply_shift(frame, pdy, pdx)
+            for frame, (pdy, pdx) in zip(stable_frames, plate_shifts, strict=True)
+        ]
+    anchor, anchor_net = stable_frames[0], (0.0, 0.0)
+    last_good_img, last_good_net = stable_frames[0], (0.0, 0.0)
+    shifts: list[tuple[float, float]] = [(0.0, 0.0)]
+    post: list[float] = [1.0]
+    reanchored: list[bool] = [False]
+    for time_index in range(1, len(stable_frames)):
+        moving = stable_frames[time_index]
+        aligned, (pdy, pdx), _ = register_translation(
+            anchor, moving, robust_preprocess=False, mask_percentile=20.0
+        )
+        p = correlation(anchor, aligned)
+        did = False
+        if p < thresh and time_index >= 2:
+            anchor, anchor_net = last_good_img, last_good_net
+            aligned, (pdy, pdx), _ = register_translation(
+                anchor, moving, robust_preprocess=False, mask_percentile=20.0
+            )
+            p = correlation(anchor, aligned)
+            did = True
+        net = (anchor_net[0] + pdy, anchor_net[1] + pdx)
+        shifts.append(net)
+        post.append(p)
+        reanchored.append(did)
+        if p >= thresh:  # trustworthy → eligible future anchor
+            last_good_img, last_good_net = moving, net
+    if plate_shifts is not None:  # net = plate prior + residual (total, for apply_shift + crop)
+        shifts = [
+            (net[0] + pdy, net[1] + pdx)
+            for net, (pdy, pdx) in zip(shifts, plate_shifts, strict=True)
+        ]
+    return shifts, post, reanchored
+
+
 def register_stack(
     stack: np.ndarray,
     *,
@@ -315,8 +467,38 @@ def register_stack(
     rows: list[dict[str, Any]],
     alignment_channel_index: int,
     alignment_channel_label: str,
+    robust_crop: bool = True,
+    ref_mode: str = "to_first",
+    anchor_corr_thresh: float = 0.10,
+    min_post_correlation: float = 0.07,
+    plate_offsets: dict | None = None,
 ) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
-    reference = robust_registration_image(stack[0, alignment_channel_index])
+    # Register on the RAW stable channel with masked phase correlation (ignore background
+    # below p20). Do NOT clip+blur here: it smears the sparse neuron signal and makes the
+    # peak lock onto image edges, producing axis-locked 500-1400 px garbage shifts (see docs).
+    reference = stack[0, alignment_channel_index]
+
+    # Plate-remount prior per timepoint (default None → all-zero → byte-identical to no correction).
+    # Composed plate-first: the moving frame is pre-shifted by its prior so registration measures
+    # only the per-well residual; net = prior + residual feeds both apply_shift and the crop.
+    plate_shifts = (
+        [_plate_offset(plate_offsets, row["day"]) for row in rows] if plate_offsets else None
+    )
+
+    if ref_mode == "anchored":
+        return _register_stack_anchored(
+            stack,
+            reference=reference,
+            well=well,
+            rows=rows,
+            alignment_channel_index=alignment_channel_index,
+            alignment_channel_label=alignment_channel_label,
+            robust_crop=robust_crop,
+            anchor_corr_thresh=anchor_corr_thresh,
+            min_post_correlation=min_post_correlation,
+            plate_shifts=plate_shifts,
+        )
+
     registered = [stack[0]]
     shifts = [(0.0, 0.0)]
     qc_rows = [
@@ -337,12 +519,123 @@ def register_stack(
     ]
 
     for time_index in range(1, stack.shape[0]):
-        moving = robust_registration_image(stack[time_index, alignment_channel_index])
-        shift, error, _ = phase_cross_correlation(reference, moving, upsample_factor=10)
-        dy, dx = float(shift[0]), float(shift[1])
+        moving = stack[time_index, alignment_channel_index]
+        pdy, pdx = plate_shifts[time_index] if plate_shifts else (0.0, 0.0)
+        reg_moving = moving if (pdy == 0.0 and pdx == 0.0) else apply_shift(moving, pdy, pdx)
+        _, (rdy, rdx), error = register_translation(
+            reference,
+            reg_moving,
+            robust_preprocess=False,
+            mask_percentile=20.0,
+        )
+        dy, dx = pdy + rdy, pdx + rdx  # net = plate prior + per-well residual
         shifted_channel = apply_shift(moving, dy, dx)
         registered.append(apply_shift(stack[time_index], dy, dx))
         shifts.append((dy, dx))
+        overlap = overlap_fraction(stack.shape[-2:], (dy, dx))
+        post_corr = correlation(reference, shifted_channel)
+        qc_rows.append(
+            {
+                "well": well,
+                "condition": condition_for_well(well),
+                "timepoint_day": rows[time_index]["day"],
+                "registration_channel": alignment_channel_label,
+                "estimated_y_shift": dy,
+                "estimated_x_shift": dx,
+                "pre_registration_correlation": correlation(reference, moving),
+                "post_registration_correlation": post_corr,
+                "overlap_fraction": overlap,
+                "registration_error": float(error),
+                **classify_registration_qc(
+                    overlap,
+                    dy,
+                    dx,
+                    stack.shape[-2],
+                    stack.shape[-1],
+                    post_correlation=post_corr,
+                ),
+                "qc_note": "masked_phase_cross_correlation_on_raw_stable_channel",
+            }
+        )
+
+    registered_stack = np.stack(registered, axis=0)
+    return (
+        registered_stack,
+        qc_rows,
+        common_overlap_crop(stack.shape[-2:], shifts, robust=robust_crop),
+    )
+
+
+def _register_stack_anchored(
+    stack: np.ndarray,
+    *,
+    reference: np.ndarray,
+    well: str,
+    rows: list[dict[str, Any]],
+    alignment_channel_index: int,
+    alignment_channel_label: str,
+    robust_crop: bool,
+    anchor_corr_thresh: float,
+    min_post_correlation: float,
+    plate_shifts: list[tuple[float, float]] | None = None,
+) -> tuple[np.ndarray, list[dict[str, Any]], dict[str, int]]:
+    """Anchored/masked temporal registration. Net shifts come from _anchored_shifts (the single
+    source of anchor math); we apply each net shift to ALL channels and feed the net shifts to
+    the common-overlap crop, exactly like the to_first path."""
+    stable_frames = stack[:, alignment_channel_index]
+    net_shifts, post_corrs, reanchored_flags = _anchored_shifts(
+        stable_frames, anchor_corr_thresh, plate_shifts=plate_shifts
+    )
+
+    # Reconstruct which frame served as the anchor per timepoint (for auditable anchor_ref_day):
+    # anchor is day0 until a re-anchor promotes the last good frame; last-good tracks post>=thresh.
+    anchor_ref_days = [rows[0]["day"]]
+    last_good_index = 0
+    anchor_index = 0
+    for time_index in range(1, stack.shape[0]):
+        if reanchored_flags[time_index]:
+            anchor_index = last_good_index
+        anchor_ref_days.append(rows[anchor_index]["day"])
+        if post_corrs[time_index] >= anchor_corr_thresh:
+            last_good_index = time_index
+
+    # Per-well churn verdict (§2.6): fail if re-anchoring more than every other frame, or any
+    # timepoint still below the QC gate after its retry.
+    n_timepoints = stack.shape[0]
+    n_reanchors = int(sum(reanchored_flags))
+    anchor_churn = n_reanchors / (n_timepoints - 1) if n_timepoints > 1 else 0.0
+    any_below_gate = any(p < min_post_correlation for p in post_corrs[1:])
+    well_registration_qc_pass = not (anchor_churn > 0.5 or any_below_gate)
+
+    registered = [stack[0]]
+    qc_rows = [
+        {
+            "well": well,
+            "condition": condition_for_well(well),
+            "timepoint_day": rows[0]["day"],
+            "registration_channel": alignment_channel_label,
+            "estimated_y_shift": 0.0,
+            "estimated_x_shift": 0.0,
+            "pre_registration_correlation": 1.0,
+            "post_registration_correlation": 1.0,
+            "overlap_fraction": 1.0,
+            "registration_error": float("nan"),
+            "qc_pass": True,
+            "large_shift": False,
+            "reanchored": False,
+            "anchor_ref_day": anchor_ref_days[0],
+            "n_reanchors": n_reanchors,
+            "anchor_churn": anchor_churn,
+            "well_registration_qc_pass": well_registration_qc_pass,
+            "qc_note": "anchored_masked_phase_cross_correlation",
+        }
+    ]
+
+    for time_index in range(1, stack.shape[0]):
+        dy, dx = net_shifts[time_index]
+        post = post_corrs[time_index]
+        moving = stable_frames[time_index]
+        registered.append(apply_shift(stack[time_index], dy, dx))
         overlap = overlap_fraction(stack.shape[-2:], (dy, dx))
         qc_rows.append(
             {
@@ -353,17 +646,33 @@ def register_stack(
                 "estimated_y_shift": dy,
                 "estimated_x_shift": dx,
                 "pre_registration_correlation": correlation(reference, moving),
-                "post_registration_correlation": correlation(reference, shifted_channel),
+                "post_registration_correlation": post,
                 "overlap_fraction": overlap,
-                "registration_error": float(error),
-                **classify_registration_qc(overlap, dy, dx, stack.shape[-2], stack.shape[-1]),
-                "qc_note": "phase_cross_correlation_on_stable_channel",
+                "registration_error": float("nan"),
+                **classify_registration_qc(
+                    overlap,
+                    dy,
+                    dx,
+                    stack.shape[-2],
+                    stack.shape[-1],
+                    post_correlation=post,
+                    min_post_correlation=min_post_correlation,
+                ),
+                "reanchored": bool(reanchored_flags[time_index]),
+                "anchor_ref_day": anchor_ref_days[time_index],
+                "n_reanchors": n_reanchors,
+                "anchor_churn": anchor_churn,
+                "well_registration_qc_pass": well_registration_qc_pass,
+                "qc_note": "anchored_masked_phase_cross_correlation",
             }
         )
 
     registered_stack = np.stack(registered, axis=0)
-    return registered_stack, qc_rows, common_overlap_crop(stack.shape[-2:], shifts)
-
+    return (
+        registered_stack,
+        qc_rows,
+        common_overlap_crop(stack.shape[-2:], net_shifts, robust=robust_crop),
+    )
 
 
 def build_summary_stats(measurements: pd.DataFrame, qc: pd.DataFrame) -> pd.DataFrame:
@@ -392,8 +701,12 @@ def build_summary_stats(measurements: pd.DataFrame, qc: pd.DataFrame) -> pd.Data
     return pd.DataFrame(rows)
 
 
-def write_registration_figure(stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path) -> None:
-    fig, axes = plt.subplots(len(stacks), 3, figsize=(10, 3.5 * len(stacks)), constrained_layout=True)
+def write_registration_figure(
+    stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path
+) -> None:
+    fig, axes = plt.subplots(
+        len(stacks), 3, figsize=(10, 3.5 * len(stacks)), constrained_layout=True
+    )
     axes = np.atleast_2d(axes)
     for row_index, (well, stack) in enumerate(stacks.items()):
         ref = robust_registration_image(stack[0, 2 if stack.shape[1] > 2 else 0])
@@ -413,9 +726,13 @@ def write_registration_figure(stacks: dict[str, np.ndarray], selected: dict[str,
     plt.close(fig)
 
 
-def write_mcherry_timeseries_figure(stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path) -> None:
+def write_mcherry_timeseries_figure(
+    stacks: dict[str, np.ndarray], selected: dict[str, list[dict[str, Any]]], path: Path
+) -> None:
     ncols = max(stack.shape[0] for stack in stacks.values())
-    fig, axes = plt.subplots(len(stacks), ncols, figsize=(3.2 * ncols, 3.4 * len(stacks)), constrained_layout=True)
+    fig, axes = plt.subplots(
+        len(stacks), ncols, figsize=(3.2 * ncols, 3.4 * len(stacks)), constrained_layout=True
+    )
     axes = np.atleast_2d(axes)
     for row_index, (well, stack) in enumerate(stacks.items()):
         mcherry_index = 1 if stack.shape[1] > 1 else 0
@@ -440,7 +757,9 @@ def write_mcherry_timeseries_gifs(stacks: dict[str, np.ndarray], figures: Path) 
             normalized = np.clip(frame / max(vmax, 1.0), 0, 1)
             rgb = plt.get_cmap("magma")(normalized)[..., :3]
             frames.append((rgb * 255).astype(np.uint8))
-        imageio.mimsave(figures / f"{well}_aligned_mcherry_timeseries.gif", frames, duration=900, loop=0)
+        imageio.mimsave(
+            figures / f"{well}_aligned_mcherry_timeseries.gif", frames, duration=900, loop=0
+        )
 
 
 def write_metric_figure(measurements: pd.DataFrame, path: Path) -> None:
@@ -453,7 +772,14 @@ def write_metric_figure(measurements: pd.DataFrame, path: Path) -> None:
     colors = {"E05": "#2f6f9f", "F05": "#b84a39"}
     for ax, (column, title) in zip(axes, specs, strict=True):
         for well, df in measurements.groupby("well", sort=True):
-            ax.plot(df["timepoint_day"], df[column], marker="o", linewidth=2, label=well, color=colors.get(well))
+            ax.plot(
+                df["timepoint_day"],
+                df[column],
+                marker="o",
+                linewidth=2,
+                label=well,
+                color=colors.get(well),
+            )
         ax.set_title(title)
         ax.set_xlabel("Day")
     axes[-1].legend(title="Well")
@@ -488,7 +814,7 @@ Wells analyzed:
 - `{args.control_well.upper()}`: PLD3 + mCherry reporter control.
 - `{args.experimental_well.upper()}`: PLD3 + TMEM106B + mCherry primary experimental well.
 
-Timepoints: {', '.join(str(row['day']) for row in selected[args.control_well.upper()])}
+Timepoints: {", ".join(str(row["day"]) for row in selected[args.control_well.upper()])}
 
 Channels: registration used 488, measurement used 561/mCherry. The mCherry channel was not used
 as the primary registration reference because mCherry redistribution is the phenotype being
@@ -538,20 +864,22 @@ wells, timepoints, and neurons for cryo-CLEM, immunostaining, and lysosome assay
 - Expand to more wells, sites, cells, and replicate pairs before inferential statistics.
 - Validate segmentation/tracking manually for same-neuron claims.
 - Tighten registration QC thresholds after reviewing failed or large-shift alignments.
-- The current pilot has {int(qc['qc_pass'].sum())}/{len(qc)} registration QC rows passing.
+- The current pilot has {int(qc["qc_pass"].sum())}/{len(qc)} registration QC rows passing.
 - Not enough independent replicates for mixed-effects or inferential statistics.
 """
     (output / "PI_README.md").write_text(content, encoding="utf-8")
 
 
-def write_methods(output: Path, args: argparse.Namespace, selected: dict[str, list[dict[str, Any]]]) -> None:
+def write_methods(
+    output: Path, args: argparse.Namespace, selected: dict[str, list[dict[str, Any]]]
+) -> None:
     content = f"""# Methods Draft
 
 ## Dataset Organization
 
 Raw ND2 files were read in place from the 260213 recopy dataset folder and were not modified.
 The pilot selected wells {args.control_well.upper()} and {args.experimental_well.upper()} and the
-earliest available fluorescence timepoints: {', '.join(str(row['day']) for row in selected[args.control_well.upper()])}.
+earliest available fluorescence timepoints: {", ".join(str(row["day"]) for row in selected[args.control_well.upper()])}.
 
 ## Image Loading
 
@@ -607,7 +935,13 @@ versions should be captured from the analysis environment for a manuscript suppl
     (output / "METHODS_DRAFT.md").write_text(content, encoding="utf-8")
 
 
-def write_run_log(output: Path, args: argparse.Namespace, selected: dict[str, list[dict[str, Any]]], started: str, extra: list[str]) -> None:
+def write_run_log(
+    output: Path,
+    args: argparse.Namespace,
+    selected: dict[str, list[dict[str, Any]]],
+    started: str,
+    extra: list[str],
+) -> None:
     lines = [
         "# Codex Run Log",
         "",
@@ -646,7 +980,10 @@ def print_terminal_summary(
     print(f"Registration QC pass/total: {int(qc['qc_pass'].sum())}/{len(qc)}")
     for well, df in measurements.groupby("well", sort=True):
         ordered = df.sort_values("timepoint_day")
-        trend = ordered["diffuse_to_punctate_ratio"].iloc[-1] - ordered["diffuse_to_punctate_ratio"].iloc[0]
+        trend = (
+            ordered["diffuse_to_punctate_ratio"].iloc[-1]
+            - ordered["diffuse_to_punctate_ratio"].iloc[0]
+        )
         print(f"{well} diffuse/punctate change: {trend:.4g}")
     print("Open PI_README.md and figures/ for the PI-ready summary.")
 
