@@ -5,8 +5,11 @@ from pathlib import Path
 import click
 import pandas as pd
 
+import numpy as np
+
 from .config import ensure_dirs, load_config, load_plate_map, load_roi_annotations, validate_config as validate
 from .export_zarr import export_ome_zarr
+from .preprocess import calculate_ic_fields_by_timepoint
 from .quantify import quantify_puncta_vs_diffuse
 from .register import register_file_to_reference
 from .roi import build_roi_timeseries, roi_from_table
@@ -74,6 +77,25 @@ def extract_nd2_command(
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"Wrote {out}")
+
+
+@main.command("compute-ic-fields")
+@click.argument("plate_dir")
+@click.option("--output", default=None, help="Output .npz path (default: <plate_dir>/ic_fields.npz).")
+@click.option("--sample-fraction", type=float, default=0.25, show_default=True)
+@click.option("--workers", type=int, default=None, help="Parallel processes (default: one per timepoint).")
+def compute_ic_fields_command(plate_dir: str, output: str | None, sample_fraction: float, workers: int | None) -> None:
+    """Compute per-timepoint illumination correction fields for a plate and save as .npz."""
+    plate_path = Path(plate_dir)
+    out = Path(output) if output else plate_path / "ic_fields.npz"
+    try:
+        ic_fields = calculate_ic_fields_by_timepoint(plate_path, sample_fraction=sample_fraction, n_workers=workers)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    np.savez_compressed(out, **ic_fields)
+    click.echo(f"Wrote {out} ({len(ic_fields)} timepoints)")
+    for name, ic in sorted(ic_fields.items()):
+        click.echo(f"  {name}: shape={ic.shape}, range=[{ic.min():.2f}, {ic.max():.2f}]")
 
 
 @main.command("validate-config")
