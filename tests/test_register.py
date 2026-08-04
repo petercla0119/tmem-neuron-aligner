@@ -37,11 +37,32 @@ def test_register_translation_with_robust_preprocess():
     moving[15, 15] = 50.0
 
     _, recovered, _ = register_translation(
-        image, moving, upsample_factor=10, robust_preprocess=True,
+        image,
+        moving,
+        upsample_factor=10,
+        robust_preprocess=True,
     )
 
     assert abs(recovered[0] + known_shift[0]) < 0.5
     assert abs(recovered[1] + known_shift[1]) < 0.5
+
+
+def test_register_translation_masked_recovers_shift():
+    # sparse bright squares on dark background — the sparse-neuron regime
+    image = np.zeros((96, 96), dtype=np.float32)
+    image[30:38, 40:48] = 1.0
+    image[60:66, 20:26] = 0.9
+    known_shift = (4.0, -6.0)
+    moving = ndi_shift(image, shift=known_shift, order=1, mode="constant", cval=0)
+
+    _, recovered, error = register_translation(
+        image, moving, robust_preprocess=False, mask_percentile=20.0
+    )
+
+    # masked correlation is integer-pixel; allow 1 px tolerance
+    assert abs(recovered[0] + known_shift[0]) < 1.0
+    assert abs(recovered[1] + known_shift[1]) < 1.0
+    assert np.isnan(error)  # masked path has no phase error
 
 
 def test_max_shift_pixels_guard():
