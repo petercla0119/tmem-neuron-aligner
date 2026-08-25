@@ -9,7 +9,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.segmentation import find_boundaries
 
-from tmem_align.analysis.if_spatial import CH_MAP2, load_fov, segment_nuclei
+from tmem_align.analysis.if_spatial import (
+    CH_MAP2,
+    apply_display_lut,
+    load_fov,
+    segment_nuclei,
+)
 
 DATA = Path("/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821/d7")
 REPORT = Path(__file__).parent.parent / "reports" / "if_segmentation_pilot"
@@ -41,8 +46,7 @@ for row, (cond, paths) in enumerate(fovs.items()):
         chs = load_fov(DATA / rel)
         map2 = chs[CH_MAP2].astype(np.float32)
         masks = segment_nuclei(map2, diameter=None)  # same cpsam, cytoplasmic input
-        lo, hi = np.percentile(map2, [1, 99.5])
-        gray = np.clip((map2 - lo) / (hi - lo + 1e-6), 0, 1)
+        gray = apply_display_lut(map2, CH_MAP2)
         rgb = np.stack([gray, gray, gray], axis=-1)
         rgb[find_boundaries(masks, mode="outer")] = [0, 1, 1]
         ax.imshow(rgb)

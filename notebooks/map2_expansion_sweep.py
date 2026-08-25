@@ -12,6 +12,7 @@ from skimage.segmentation import find_boundaries
 from tmem_align.analysis.if_spatial import (
     CH_DAPI,
     CH_MAP2,
+    apply_display_lut,
     expand_to_cell_bodies,
     load_fov,
     segment_nuclei,
@@ -33,8 +34,7 @@ for row, (cond, rel) in enumerate(fovs.items()):
     chs = load_fov(DATA / rel)
     nuclei = segment_nuclei(chs[CH_DAPI])
     map2 = chs[CH_MAP2].astype(np.float32)
-    lo, hi = np.percentile(map2, [1, 99.5])
-    gray = np.clip((map2 - lo) / (hi - lo + 1e-6), 0, 1)
+    gray = apply_display_lut(map2, CH_MAP2)
     for col, dist in enumerate(DISTANCES):
         bodies = expand_to_cell_bodies(nuclei, map2, max_distance=dist)
         rgb = np.stack([gray, gray, gray], axis=-1)

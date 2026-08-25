@@ -20,6 +20,30 @@ CH_DAPI = "405nm"
 # ponytail: fixed estimate; pass diameter=None to let Cellpose auto-detect (slower)
 _NUCLEUS_DIAMETER_PX = 111
 
+# Fixed per-channel display LUTs (raw uint16 DN) for the d7 fixed-IF dataset.
+# lo = p1 (camera/background floor ~105 DN), hi = p99.9, pooled over 18 FOVs across
+# the plate (see reports/if_segmentation_pilot/lut_ranges.md). Use these instead of
+# per-image percentile stretch so brightness is COMPARABLE across conditions and
+# doesn't drift image-to-image. Note TMEM/561 is very dim/sparse (hi≈1800) — that's
+# the biology, not a display error.
+DISPLAY_LUT = {
+    CH_MAP2: (110, 21000),
+    CH_LAMP1: (120, 12000),
+    CH_TMEM: (105, 1800),
+    CH_DAPI: (130, 21000),
+}
+
+
+def apply_display_lut(img_yx: np.ndarray, channel: str) -> np.ndarray:
+    """Scale a raw channel to [0, 1] float for display using the fixed per-channel LUT.
+
+    `channel` is a CH_* wavelength key. Falls back to per-image p1/p99.5 for any
+    channel without a fixed LUT, so the helper is always total.
+    """
+    img = np.asarray(img_yx, dtype=np.float32)
+    lo, hi = DISPLAY_LUT.get(channel, tuple(np.percentile(img, [1, 99.5])))
+    return np.clip((img - lo) / (hi - lo + 1e-6), 0, 1)
+
 
 def load_fov(nd2_path: str | Path) -> dict[str, np.ndarray]:
     """Load one ND2 FOV; max-project Z; return {channel_name: yx_uint16_array}.

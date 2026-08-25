@@ -1,7 +1,12 @@
 """Self-checks for fixed-IF cell-body expansion."""
 import numpy as np
 
-from tmem_align.analysis.if_spatial import cell_foreground_mask, expand_to_cell_bodies
+from tmem_align.analysis.if_spatial import (
+    CH_TMEM,
+    apply_display_lut,
+    cell_foreground_mask,
+    expand_to_cell_bodies,
+)
 
 
 def _synthetic():
@@ -48,3 +53,14 @@ def test_foreground_mask_separates_signal_from_black():
     fg = cell_foreground_mask(map2)
     assert fg[100, 100], "center of bright region is foreground"
     assert not fg[5, 5], "corner of black region is background"
+
+
+def test_display_lut_is_fixed_and_clipped():
+    # Fixed LUT: same input DN → same output regardless of image content, [0,1].
+    lo, hi = 105, 1800  # TMEM range
+    img = np.array([[lo - 50, lo, (lo + hi) // 2], [hi, hi + 5000, 65535]], dtype=np.uint16)
+    out = apply_display_lut(img, CH_TMEM)
+    assert out.min() >= 0.0 and out.max() <= 1.0, "output clipped to [0,1]"
+    assert out[0, 0] == 0.0, "below-floor pixel maps to black"
+    assert out[1, 1] == 1.0 and out[1, 2] == 1.0, "at/above hi saturates to white"
+    assert abs(out[0, 2] - 0.5) < 0.01, "midpoint maps to ~0.5"
