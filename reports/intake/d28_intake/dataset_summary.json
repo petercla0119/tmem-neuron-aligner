@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "dataset_path": "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821/d28",
+  "scan_timestamp": "2026-08-29T06:09:04.253502+00:00",
+  "invocation": {
+    "path": "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821/d28",
+    "output": "reports/intake/d28_intake",
+    "sample_sheet": null,
+    "no_recursive": false,
+    "checksum": "fast",
+    "include_derived": false,
+    "no_harmony": false,
+    "max_files": 20000,
+    "selftest": false
+  },
+  "n_files": 65,
+  "n_channels": 260,
+  "n_samples": 15,
+  "formats": [
+    "nd2"
+  ],
+  "total_bytes": 28869414912,
+  "parse_status_counts": {
+    "ok": 65
+  },
+  "missing_readers": [],
+  "file_mtime_range": {
+    "earliest": "2026-08-28T16:58:44+00:00",
+    "latest": "2026-08-28T20:07:02+00:00"
+  },
+  "tile_overlap": {
+    "tile_size_um": 221.87,
+    "step_x_um": 196,
+    "step_y_um": 193,
+    "overlap_x_um": 25.87,
+    "overlap_y_um": 28.87,
+    "overlap_x_pct": 11.7,
+    "overlap_y_pct": 13.0,
+    "n_positions_used": 65,
+    "note": "estimated from median stage step in sampled positions; unreliable with sparse or non-rectangular scan coverage \u2014 confirm overlap % from NIS-Elements acquisition settings"
+  },
+  "validation_errors": [],
+  "validation_warnings": [
+    "65 ND2 image(s): excitation_nm cleared (all channels were identical \u2014 NIS-Elements writes last laser line, not per-channel value). Provide correct values from acquisition log or sample sheet."
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "dataset_path": "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821",
+  "scan_timestamp": "2026-08-21T22:03:23.248320+00:00",
+  "invocation": {
+    "path": "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821",
+    "output": "/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/reports/intake/cleaved_tmem_pld3_260821",
+    "sample_sheet": null,
+    "no_recursive": false,
+    "checksum": "fast",
+    "include_derived": false,
+    "no_harmony": false,
+    "max_files": 20000,
+    "selftest": false
+  },
+  "n_files": 72,
+  "n_channels": 288,
+  "n_samples": 7,
+  "formats": [
+    "nd2"
+  ],
+  "total_bytes": 27767504896,
+  "parse_status_counts": {
+    "ok": 72
+  },
+  "missing_readers": [],
+  "file_mtime_range": {
+    "earliest": "2026-08-12T16:42:14+00:00",
+    "latest": "2026-08-21T18:05:00+00:00"
+  },
+  "tile_overlap": {
+    "tile_size_um": 221.87,
+    "step_x_um": 158,
+    "step_y_um": 177,
+    "overlap_x_um": 63.87,
+    "overlap_y_um": 44.87,
+    "overlap_x_pct": 28.8,
+    "overlap_y_pct": 20.2,
+    "n_positions_used": 72,
+    "note": "estimated from median stage step in sampled positions; unreliable with sparse or non-rectangular scan coverage \u2014 confirm overlap % from NIS-Elements acquisition settings"
+  },
+  "validation_errors": [],
+  "validation_warnings": [
+    "72 ND2 image(s): excitation_nm cleared (all channels were identical \u2014 NIS-Elements writes last laser line, not per-channel value). Provide correct values from acquisition log or sample sheet."
+  ]
+}

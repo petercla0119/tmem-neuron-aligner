@@ -1,0 +1,17 @@
+sample_id,plate_id,well_id,condition,metadata_source
+unknown,,,,inferred_from_path
+G20,,G20,,inferred_from_path
+H20,,H20,,inferred_from_path
+C20,,C20,,inferred_from_path
+E20,,E20,,inferred_from_path
+D20,,D20,,inferred_from_path
+G17,,G17,,inferred_from_path
+D17,,D17,,inferred_from_path
+E17,,E17,,inferred_from_path
+H17,,H17,,inferred_from_path
+C17,,C17,,inferred_from_path
+H8,,H8,,inferred_from_path
+C8,,C8,,inferred_from_path
+G8,,G8,,inferred_from_path
+E8,,E8,,inferred_from_path
+D8,,D8,,inferred_from_path
