@@ -27,8 +27,8 @@ from run_260213_longitudinal_pilot import (
     infer_day,
     infer_sequence,
     load_nd2_cyx,
-    register_stack,
 )
+from tmem_align.register import register_stack
 from tmem_align.plate_align import (
     detect_plate_events,
     fit_plate_transform,
@@ -141,6 +141,7 @@ def _process_one_well(
             anchor_corr_thresh=anchor_corr_thresh,
             min_post_correlation=min_post_correlation,
             plate_offsets=plate_offsets,
+            condition=condition_for_well(well),
         )
         condition = condition_for_well(well)
         for row in well_qc:
