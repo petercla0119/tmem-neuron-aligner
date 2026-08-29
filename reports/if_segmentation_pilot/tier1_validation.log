@@ -1,0 +1,42 @@
+======================================================================
+CHECK #1 — cell-body area confound (d7, qc-pass)
+======================================================================
+
+(a) cell-body size by condition (qc-pass cells)
+           count  median   mean
+condition                      
+Control      434   153.7  170.0
+KI           375   146.8  165.7
+KO           500   144.9  153.1
+    KO vs Control cell area: median 145 vs 154 µm²  (MW p=0.0179)
+    KI vs Control cell area: median 147 vs 154 µm²  (MW p=0.569)
+
+(b) does lyso size track cell area? (Spearman)
+    pooled: rho=+0.206, p=5.45e-14
+    Control : rho=+0.175, p=0.000254
+    KI      : rho=+0.295, p=5.73e-09
+    KO      : rho=+0.112, p=0.0119
+
+(c) well-level (n=18): does KO deficit survive adjusting for cell area?
+            lyso     area
+condition                
+Control    1.170  155.237
+KI         1.466  159.358
+KO         0.462  147.340
+
+    RAW well-level KO-Ctrl lyso diff = -0.708 µm²
+    AREA-ADJUSTED KO effect (OLS lyso ~ 1 + KO + area):
+        KO coef   = -0.692 µm²  (SE 0.283, p=0.0369)
+        area coef = +0.0021 µm²/µm² (SE 0.0136, p=0.882)
+    -> if KO coef stays ~-0.71 and significant, the deficit is NOT a cell-area/clipping artifact.
+
+======================================================================
+CHECK #3 — d28 QC-sensitivity (censoring risk)
+======================================================================
+d28 cells: 830 total, 699 pass (84.2%)
+
+  WITH QC (default):  n_wells Ctrl=5 KO=6  kruskal_p=0.194
+    KO-Ctrl lyso_mean_size_um2: diff=-0.265 µm² CI[-0.520,-0.010] d=-1.79 p_bh=0.165
+
+  WITHOUT QC:  n_wells Ctrl=5 KO=6  kruskal_p=0.217
+    KO-Ctrl lyso_mean_size_um2: diff=-0.276 µm² CI[-0.531,-0.022] d=-1.88 p_bh=0.104
