@@ -150,6 +150,24 @@ def blank(ax):
     ax.axis("off")
 
 
+def add_figure_title(fig, grid, n_top_cols, text, fontsize=14, pad_frac=0.01):
+    """Place the figure title just above the top-row axes titles by measuring
+    their actual rendered position — reliable across all figure sizes and fonts.
+    Replacing suptitle(y=...) avoids the ImageGrid-overlaps-suptitle problem
+    where axes fill rect=111 and push their titles above y=1.0.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    fig_h_px = fig.get_size_inches()[1] * fig.dpi
+    tops = [
+        grid[c].title.get_window_extent(renderer).y1
+        for c in range(n_top_cols)
+        if grid[c].title.get_text()
+    ]
+    y = (max(tops) if tops else fig_h_px) / fig_h_px + pad_frac
+    fig.text(0.5, y, text, ha="center", va="bottom", fontsize=fontsize, fontweight="bold")
+
+
 # --------------------------------------------------------------------------- #
 # Figure 1 — per-channel walk-through
 # --------------------------------------------------------------------------- #
@@ -211,8 +229,9 @@ def figure1(d):
                 ax.set_ylabel(ch_name, fontsize=12, fontweight="bold")
             if r == 0 and c == 0:
                 add_scalebar(ax, img.shape)
-    fig.suptitle("LAMP1 pipeline — per-channel walk-through (Control d7, well G17 FOV F2)",
-                 fontsize=15, fontweight="bold", y=0.995)
+    add_figure_title(fig, grid, 3,
+                     "LAMP1 pipeline — per-channel walk-through (Control d7, well G17 FOV F2)",
+                     fontsize=15)
     fig.savefig(OUT / "fig_pipeline_perchannel.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print("wrote fig_pipeline_perchannel.png")
@@ -263,8 +282,9 @@ def figure2(d):
     grid[4].text(0.02, 0.02, f"pass={n_pass}  fail={n_fail}", transform=grid[4].transAxes,
                  fontsize=9, color="white", va="bottom",
                  bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.55))
-    fig.suptitle("LAMP1 pipeline — merged 4-channel FOV walk-through (Control d7, G17 F2)",
-                 fontsize=14, fontweight="bold", y=1.02)
+    add_figure_title(fig, grid, 5,
+                     "LAMP1 pipeline — merged 4-channel FOV walk-through (Control d7, G17 F2)",
+                     fontsize=14)
     fig.savefig(OUT / "fig_pipeline_merged.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print("wrote fig_pipeline_merged.png")
@@ -356,8 +376,9 @@ def figure3(d):
             fontsize=8, va="center", ha="left", family="monospace")
         add_scalebar(grid[ri * ncol], merge.shape, length_um=5)
 
-    fig.suptitle("LAMP1 pipeline — single-cell crops with extracted features (Control d7, G17 F2)",
-                 fontsize=13, fontweight="bold", y=1.0)
+    add_figure_title(fig, grid, ncol,
+                     "LAMP1 pipeline — single-cell crops with extracted features (Control d7, G17 F2)",
+                     fontsize=13)
     fig.savefig(OUT / "fig_pipeline_singlecell.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     print("wrote fig_pipeline_singlecell.png")
