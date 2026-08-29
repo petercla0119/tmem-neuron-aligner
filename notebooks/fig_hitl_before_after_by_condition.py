@@ -14,6 +14,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from cellpose import models
+from scipy.ndimage import binary_dilation
 from skimage.segmentation import find_boundaries
 
 from tmem_align.analysis.if_spatial import CH_MAP2, apply_display_lut, load_fov
@@ -50,7 +51,8 @@ def pick_fovs(cond_dir: Path) -> list[Path]:
 
 def overlay(ax, gray, masks, title):
     rgb = np.stack([gray] * 3, axis=-1)
-    rgb[find_boundaries(masks, mode="outer")] = [0, 1, 1]
+    edges = binary_dilation(find_boundaries(masks, mode="outer"), iterations=2)
+    rgb[edges] = [0, 1, 1]
     ax.imshow(rgb)
     ax.set_title(f"{title} (n={int(masks.max())})", fontsize=10)
     ax.axis("off")

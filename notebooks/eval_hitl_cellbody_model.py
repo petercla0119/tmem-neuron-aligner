@@ -16,6 +16,7 @@ import numpy as np
 import tifffile
 from cellpose import models
 from cellpose.metrics import average_precision
+from scipy.ndimage import binary_dilation
 from skimage.segmentation import find_boundaries
 
 from tmem_align.analysis.if_spatial import (
@@ -66,7 +67,8 @@ def main() -> None:
             [(gt, "GT (corrected)"), (pred, "fine-tuned cpsam"), (base, "seeded expansion")]
         ):
             rgb = np.stack([gray] * 3, axis=-1)
-            rgb[find_boundaries(masks, mode="outer")] = [0, 1, 1]
+            edges = binary_dilation(find_boundaries(masks, mode="outer"), iterations=2)
+            rgb[edges] = [0, 1, 1]
             ax = axes[i, col] if len(segs) > 1 else axes[col]
             ax.imshow(rgb)
             ax.set_title(f"{stem.split('__')[0]} — {title} (n={int(masks.max())})", fontsize=10)
