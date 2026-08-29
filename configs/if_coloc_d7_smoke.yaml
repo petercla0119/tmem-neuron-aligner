@@ -1,0 +1,15 @@
+# Smoke config for the 3D TMEM-LAMP1 coloc pipeline (scripts/run_if_coloc.py).
+# A few d7 FOVs per genotype, reusing the quantification run's cached cell masks.
+data_root: /Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821
+timepoint: d7
+output_dir: reports/if_segmentation_pilot
+
+# Reuse cached MAP2 cell-body masks so the smoke needs no cellpose model.
+mask_cache_dir: /Users/pmihack/claire/tmem_2026/tmem-if-features/reports/if_segmentation_pilot/fov_cache
+
+threshold_um: 0.5          # "within" distance for the enrichment fraction
+n_null_iterations: 200
+tmem_top_percentile: 99.9  # TODO(Claire): calibrate — 561 is sparse/dim; this is a placeholder
+min_puncta_size_vox: 2
+max_fovs: 6                # smoke: ~2 per genotype (round-robin across conditions)
+seed: 0

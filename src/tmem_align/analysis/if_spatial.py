@@ -76,6 +76,39 @@ def load_fov(nd2_path: str | Path) -> dict[str, np.ndarray]:
     return {name: arr[i] for i, name in enumerate(channel_names)}
 
 
+def load_fov_3d(nd2_path: str | Path) -> tuple[dict[str, np.ndarray], tuple[float, float, float]]:
+    """Load one ND2 FOV WITHOUT max-projection: {channel_name: zyx_uint16}, (z,y,x) µm.
+
+    The 3D counterpart of load_fov, for coloc/detection that needs the z-stack. Voxel
+    size (µm) comes from ND2 metadata per FOV (this dataset uses adaptive Z, so z-spacing
+    is not constant across files). Single-Z FOVs come back with a length-1 z axis.
+    """
+    try:
+        import nd2
+    except ImportError as exc:
+        raise ImportError("Install nd2 support: pip install -e '.[nd2]'") from exc
+
+    with nd2.ND2File(Path(nd2_path)) as f:
+        channel_names = [
+            str(getattr(getattr(ch, "channel", ch), "name", None) or f"ch{i}")
+            for i, ch in enumerate(f.metadata.channels)
+        ]
+        arr = f.asarray()  # ZCYX for z-stacks, CYX for single-Z
+        vx = f.voxel_size()  # VoxelSize(x, y, z) in µm
+
+    if arr.ndim == 3:  # CYX -> add singleton Z
+        arr = arr[None]
+    if arr.ndim != 4:
+        raise ValueError(f"Unexpected ND2 shape after load: {arr.shape}")
+    arr = np.moveaxis(arr, 1, 0)  # ZCYX -> CZYX
+    if arr.shape[0] != len(channel_names):
+        raise ValueError(
+            f"Channel count mismatch: metadata={len(channel_names)}, array C={arr.shape[0]}"
+        )
+    channels = {name: arr[i] for i, name in enumerate(channel_names)}
+    return channels, (float(vx.z), float(vx.y), float(vx.x))
+
+
 def segment_nuclei(
     dapi_yx: np.ndarray,
     diameter: float | None = _NUCLEUS_DIAMETER_PX,
