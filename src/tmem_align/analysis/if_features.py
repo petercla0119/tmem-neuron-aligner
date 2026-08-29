@@ -234,11 +234,17 @@ def qc_filter_cells(
     return pd.DataFrame(rows)
 
 
-def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.DataFrame:
+def analyze_fov(
+    nd2_path: str | Path,
+    min_focus: float | None = None,
+    masks_dir: str | Path | None = None,
+) -> pd.DataFrame:
     """Full per-FOV pipeline: load -> segment -> QC -> features, tagged with metadata.
 
     Returns one row per cell (QC cells kept, flagged by qc_pass) with condition/well/
     fov/timepoint/n_z_slices columns. Requires nd2 + cellpose (see if_spatial).
+    If masks_dir is set, the nuclei/cells/lysosome label masks are saved there as
+    napari-ready TIFFs (save_fov_masks) so no re-segmentation is needed to view them.
     """
     from .if_spatial import load_fov, segment_cell_bodies, segment_nuclei
 
@@ -253,6 +259,9 @@ def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.Data
     cells = segment_cell_bodies(ch[CH_MAP2])
     lyso_labels, lamp1_corr = detect_lysosomes(ch[CH_LAMP1])
 
+    if masks_dir is not None:
+        save_fov_masks(masks_dir, nd2_path, nuclei, cells, lyso_labels)
+
     feats = per_cell_features(cells, nuclei, ch, lyso_labels, lamp1_corr)
     qc = qc_filter_cells(cells, nuclei, ch[CH_DAPI])
     df = feats.merge(qc, on="cell_id", how="left")
@@ -261,20 +270,108 @@ def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.Data
     return df
 
 
-def build_table(nd2_paths: list[str | Path], min_focus: float | None = None) -> pd.DataFrame:
+def build_table(
+    nd2_paths: list[str | Path],
+    min_focus: float | None = None,
+    masks_dir: str | Path | None = None,
+) -> pd.DataFrame:
     """Concatenate analyze_fov over many FOVs into the one tidy table.
 
     Glob the paths yourself, e.g.
         paths = sorted(Path(data/'d7').rglob('*.nd2'))
-        df = build_table(paths)
+        df = build_table(paths, masks_dir='reports/if_segmentation_pilot/masks')
+    Pass masks_dir to also dump each FOV's napari-ready label masks alongside the table.
     """
     frames = []
     for p in nd2_paths:
         try:
-            frames.append(analyze_fov(p, min_focus=min_focus))
+            frames.append(analyze_fov(p, min_focus=min_focus, masks_dir=masks_dir))
         except Exception as exc:  # noqa: BLE001 - keep going, report at end
             print(f"  SKIP {Path(p).name}: {exc}")
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+# ---- mask export (napari-ready label images) --------------------------------
+# Three label masks come out of every FOV: nuclei (DAPI), cells (MAP2 soma),
+# lysosomes (LAMP1 puncta). Save them as int TIFFs so they drop straight into
+# napari as Labels layers; view_fov() overlays them on the raw channels.
+
+MASK_KINDS = ("nuclei", "cells", "lysosomes")
+# distinct label tints per kind so a napari overlay reads at a glance
+_MASK_COLORMAP = {"nuclei": "blue", "cells": "green", "lysosomes": "red"}
+
+
+def _fov_mask_paths(masks_dir: str | Path, nd2_path: str | Path) -> dict[str, Path]:
+    """{kind: tif path} for one FOV, foldered by timepoint/condition (napari-browsable)."""
+    meta = parse_fov_metadata(nd2_path)
+    stem = Path(nd2_path).stem
+    base = Path(masks_dir) / (meta["timepoint"] or "unknown") / (meta["condition"] or "unknown")
+    return {k: base / f"{stem}__{k}.tif" for k in MASK_KINDS}
+
+
+def save_fov_masks(
+    masks_dir: str | Path,
+    nd2_path: str | Path,
+    nuclei: np.ndarray,
+    cells: np.ndarray,
+    lysosomes: np.ndarray,
+) -> dict[str, Path]:
+    """Write one FOV's three label arrays as int32 TIFFs (napari Labels-ready).
+
+    Layout: {masks_dir}/{timepoint}/{condition}/{nd2_stem}__{kind}.tif. int32 labels
+    round-trip exactly; reopen with load_fov_masks() or overlay via view_fov().
+    """
+    import tifffile
+
+    paths = _fov_mask_paths(masks_dir, nd2_path)
+    arrays = {"nuclei": nuclei, "cells": cells, "lysosomes": lysosomes}
+    for kind, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tifffile.imwrite(path, np.asarray(arrays[kind], dtype=np.int32))
+    return paths
+
+
+def load_fov_masks(masks_dir: str | Path, nd2_path: str | Path) -> dict[str, np.ndarray]:
+    """Reload one FOV's saved label masks: {kind: int32 array}. Missing kinds are skipped."""
+    import tifffile
+
+    out = {}
+    for kind, path in _fov_mask_paths(masks_dir, nd2_path).items():
+        if path.exists():
+            out[kind] = tifffile.imread(path)
+    return out
+
+
+def fov_napari_layers(nd2_path: str | Path, masks_dir: str | Path) -> list[tuple]:
+    """napari layer-data-tuples for one FOV: 4 raw channels (image) + saved masks (labels).
+
+    Returns [(data, meta_kwargs, layer_type), ...] -- the exact format napari readers
+    emit, so it needs NO napari import to build (and stays unit-testable). Feed each to
+    napari via `viewer.add_layer(napari.layers.Layer.create(*ld))` (see view_fov).
+    """
+    from .if_spatial import DISPLAY_LUT, load_fov
+
+    ch_names = {CH_DAPI: "DAPI", CH_MAP2: "MAP2", CH_LAMP1: "LAMP1", CH_TMEM: "cleaved-TMEM"}
+    layers: list[tuple] = []
+    for chan, arr in load_fov(nd2_path).items():
+        lo, hi = DISPLAY_LUT.get(chan, tuple(np.percentile(arr, [1, 99.5])))
+        layers.append((arr, {"name": ch_names.get(chan, chan), "colormap": "gray",
+                             "contrast_limits": [float(lo), float(hi)],
+                             "blending": "additive"}, "image"))
+    for kind, mask in load_fov_masks(masks_dir, nd2_path).items():
+        layers.append((mask, {"name": kind, "opacity": 0.5}, "labels"))
+    return layers
+
+
+def view_fov(nd2_path: str | Path, masks_dir: str | Path):  # pragma: no cover - GUI
+    """Open one FOV's channels + saved masks in napari as Labels layers. Needs [viewer] extra."""
+    import napari
+
+    viewer = napari.Viewer()
+    for data, meta, ltype in fov_napari_layers(nd2_path, masks_dir):
+        viewer.add_layer(napari.layers.Layer.create(data, meta, ltype))
+    napari.run()
+    return viewer
 
 
 def qc_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -402,7 +499,9 @@ def condition_stats(
         p = float(stats.mannwhitneyu(vals, ref, alternative="two-sided").pvalue)
         diff, lo, hi = _welch_ci(vals, ref)
         pairwise.append((cond, p, diff, lo, hi, _cohens_d(vals, ref)))
-        pvals.append(p)
+        # Mann-Whitney returns NaN for a degenerate comparison (e.g. manders all-zero);
+        # BH needs finite p in [0,1] -> treat "no computable evidence" as p=1.
+        pvals.append(p if np.isfinite(p) else 1.0)
     if pvals:
         from scipy.stats import false_discovery_control
 
