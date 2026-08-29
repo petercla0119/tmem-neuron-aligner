@@ -99,6 +99,49 @@ def segment_nuclei(
     return masks.astype(np.int32)
 
 
+# Fine-tuned MAP2 cell-body model (cpsam, HITL-trained 2026-08-27 on 9 corrected
+# FOVs; see docs/Fixed-IF Spatial Analysis). Lives with the data, not in git.
+# Held-out AP@0.5 0.58 vs seeded expansion 0.54 — cleaner somata, ~15-20% under-
+# detection. Override `model_path` for a different checkpoint.
+_CELLBODY_MODEL = (
+    "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821"
+    "/hitl_map2_train/models/map2_cellbody_cpsam"
+)
+
+
+def segment_cell_bodies(
+    map2_yx: np.ndarray,
+    model_path: str = _CELLBODY_MODEL,
+    gpu: bool = True,
+) -> np.ndarray:
+    """Segment MAP2 cell bodies (soma) with the HITL fine-tuned cpsam model.
+
+    Feeds the SAME fixed-LUT uint8 the model was trained on (apply_display_lut) —
+    this normalization is part of the model, do not pass raw DN. Returns an int32
+    label array (0 = background), one label per soma.
+
+    Prefer this over expand_to_cell_bodies for cell-body masks: the fine-tuned
+    model draws compact somata that stop at the cell body, where seeded expansion
+    traces bright neurites. Trade-off: ~15-20% under-detection of faint cells.
+    """
+    try:
+        from cellpose import models
+    except ImportError as exc:
+        raise ImportError("Install cellpose: pip install cellpose") from exc
+
+    if not Path(model_path).exists():
+        raise FileNotFoundError(
+            f"Cell-body model not found at {model_path}. It lives with the data, "
+            "not in git — retrain via notebooks/export_hitl_seed_masks.py + "
+            "cellpose --train, or pass model_path=."
+        )
+
+    model = models.CellposeModel(gpu=gpu, pretrained_model=str(model_path))
+    img_u8 = (apply_display_lut(map2_yx, CH_MAP2) * 255).astype(np.uint8)
+    masks, _, _ = model.eval(img_u8)
+    return masks.astype(np.int32)
+
+
 # ~12 µm max soma radius / 0.108 µm per px ≈ 110 px. Sweep (reports/if_segmentation
 # _pilot/map2_expansion_sweep.png) showed 90/110/140 near-identical — mesh connectivity,
 # not this cap, bounds the bodies. ponytail: 110 keeps bodies soma-focused.
