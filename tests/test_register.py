@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 from scipy.ndimage import shift as ndi_shift
 
-from scripts.run_260213_longitudinal_pilot import _anchored_shifts, register_stack
-from tmem_align.register import apply_shift, register_translation
+from tmem_align.register import _anchored_shifts, apply_shift, register_stack, register_translation
 from tmem_align.registration_qc import (
     classify_registration_qc,
     common_overlap_crop,
