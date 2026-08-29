@@ -8,15 +8,25 @@ Experimental design (cleaved-TMEM d7/d14/d28 dataset):
   condition (KO/Control/KI) -> well (6, rows C-H one column) -> FOV (4, F1-F4) -> cells
 The experimental UNIT is the well, not the cell. Cells within a well/FOV are
 correlated; testing pooled cells as n=cells is pseudoreplication. condition_stats
-aggregates to well means first. Also: this is ONE pooled differentiation
+aggregates to well values first. Also: this is ONE pooled differentiation
 (wells = technical reps, d7->d28 = same source aged), so biological n = 1 --
 these stats describe THIS culture; a genotype claim needs independent diffs.
+
+Design confounds to state in methods, not fixable in code here:
+  - time is confounded with plate (one plate per timepoint) -> needs >=3 runs.
+  - condition is confounded with plate COLUMN (each genotype = a fixed column) ->
+    column/edge/evaporation effects track genotype; randomize on future plates.
 
 Four readouts (primary = lysosome size & count; rest exploratory, BH-correct):
   1. size & count   n_lysosomes, lyso_area_frac, lyso_mean_size_um2
   2. intensity      lamp1_mean, lamp1_integrated  (bg-subtracted)
   3. spatial        perinuclear_index (mean lyso dist from nucleus / cell radius)
   4. coloc w/ TMEM  tmem_manders_m1, tmem_pearson
+
+MIP caveat: load_fov max-projects Z. That is NOT invariant to slice count -- the
+noise floor (max of N samples) creeps up with depth, and z-overlapping lysosomes
+collapse. Run depth_sensitivity() on controls before trusting 2D; escalate to 3D
+(Cellpose anisotropy=z_step/xy) only if the readout correlates with slice count.
 """
 from __future__ import annotations
 
@@ -64,6 +74,14 @@ def fov_focus_score(img_yx: np.ndarray) -> float:
 
     img = np.asarray(img_yx, dtype=np.float32)
     return float(ndi.laplace(img).var())
+
+
+def fov_z_count(nd2_path: str | Path) -> int:
+    """Number of Z slices in an ND2 FOV (1 if not a stack). Feeds depth_sensitivity."""
+    import nd2
+
+    with nd2.ND2File(Path(nd2_path)) as f:
+        return int(f.sizes.get("Z", 1))
 
 
 def detect_lysosomes(
@@ -177,10 +195,17 @@ def qc_filter_cells(
     max_cell_area_px: int = 80000,
     min_nuc_area_px: int = 3000,
 ) -> pd.DataFrame:
-    """Per-cell-label QC: qc_pass=False for border / pyknotic / size-outlier cells.
+    """Per-cell-label QC: qc_pass=False for border / abnormal-nucleus / size-outlier cells.
 
-    Defaults from the ~12 µm soma / ~0.108 µm-px geometry: nucleus ~9700 px²,
-    pyknotic (condensed apoptotic) < ~3000 px² with bright DAPI; soma body 2k-80k px².
+    Uses ONLY nuclear + cytoskeletal geometry -- never the LAMP1 organelle channel,
+    which is the outcome being tested. Defaults from ~12 µm soma / ~0.108 µm-px:
+    nucleus ~9700 px²; abnormal (small + condensed DAPI) < ~3000 px²; soma 2k-80k px².
+
+    Thresholds are fixed constants (condition-blind by construction). "abnormal_nucleus"
+    means morphologically abnormal, NOT confirmed dead -- morphology alone cannot call
+    death without a viability marker. Report qc_summary() per condition and run
+    condition_stats(apply_qc=False) as a check: if excluding these cells changes the
+    result, QC may be censoring the phenotype (e.g. KO genuinely injuring cells).
     Returns cols: cell_id, qc_pass, qc_reason.
     """
     dapi = np.asarray(dapi_yx, dtype=np.float32)
@@ -204,7 +229,7 @@ def qc_filter_cells(
         elif area < min_cell_area_px or area > max_cell_area_px:
             reason = "size_outlier"
         elif nuc_area and nuc_area < min_nuc_area_px and nuc_dapi > dapi_hi:
-            reason = "pyknotic"  # small + condensed = dead/apoptotic
+            reason = "abnormal_nucleus"  # small + condensed; NOT confirmed dead
         rows.append({"cell_id": int(lab), "qc_pass": reason == "", "qc_reason": reason})
     return pd.DataFrame(rows)
 
@@ -213,11 +238,12 @@ def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.Data
     """Full per-FOV pipeline: load -> segment -> QC -> features, tagged with metadata.
 
     Returns one row per cell (QC cells kept, flagged by qc_pass) with condition/well/
-    fov/timepoint columns prepended. Requires nd2 + cellpose (see if_spatial).
+    fov/timepoint/n_z_slices columns. Requires nd2 + cellpose (see if_spatial).
     """
     from .if_spatial import load_fov, segment_cell_bodies, segment_nuclei
 
     meta = parse_fov_metadata(nd2_path)
+    meta["n_z_slices"] = fov_z_count(nd2_path)  # for depth_sensitivity (MIP bias check)
     ch = load_fov(nd2_path)
 
     if min_focus is not None and fov_focus_score(ch[CH_MAP2]) < min_focus:
@@ -251,47 +277,141 @@ def build_table(nd2_paths: list[str | Path], min_focus: float | None = None) -> 
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def qc_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-condition QC exclusion rate + reason breakdown. Report this with any result.
+
+    Uneven exclusion across conditions is the red flag -- QC may be censoring biology
+    (e.g. KO cells failing morphology QC). Pair with condition_stats(apply_qc=False).
+    """
+    summary = df.groupby("condition")["qc_pass"].agg(n_cells="size", n_pass="sum")
+    summary["pct_excluded"] = 100 * (1 - summary["n_pass"] / summary["n_cells"])
+    reasons = (
+        df[~df["qc_pass"]].groupby(["condition", "qc_reason"]).size().unstack(fill_value=0)
+    )
+    return summary.join(reasons).reset_index()
+
+
+def depth_sensitivity(
+    df: pd.DataFrame, value_col: str, condition: str = "Control", unit: str = "well"
+) -> dict:
+    """Spearman corr of the FOV-level readout vs Z-slice count, within one condition.
+
+    MIP intensity/counts should NOT track stack depth. A non-flat correlation here means
+    max-projection is biasing the readout by slice count -> switch that readout to 3D.
+    Needs the n_z_slices column (present when built via analyze_fov).
+    """
+    from scipy import stats
+
+    d = df[df["condition"] == condition]
+    if "qc_pass" in d.columns:
+        d = d[d["qc_pass"] == True]  # noqa: E712
+    fov = (
+        d.groupby([unit, "fov"])
+        .agg(val=(value_col, "median"), n_z=("n_z_slices", "first"))
+        .dropna()
+    )
+    if fov["n_z"].nunique() < 2 or len(fov) < 3:
+        return {"rho": np.nan, "p": np.nan, "n": int(len(fov)),
+                "note": "insufficient z-depth variation to test"}
+    r = stats.spearmanr(fov["n_z"], fov["val"])
+    return {"rho": float(r.statistic), "p": float(r.pvalue), "n": int(len(fov))}
+
+
+def _welch_ci(a: np.ndarray, b: np.ndarray, alpha: float = 0.05) -> tuple[float, float, float]:
+    """(mean_diff, ci_lo, ci_hi) for a-b via Welch (unequal-variance) t interval."""
+    from scipy import stats
+
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    diff = a.mean() - b.mean()
+    va, vb, na, nb = a.var(ddof=1), b.var(ddof=1), len(a), len(b)
+    se = np.sqrt(va / na + vb / nb)
+    if se == 0:
+        return float(diff), float(diff), float(diff)
+    dfree = (va / na + vb / nb) ** 2 / ((va / na) ** 2 / (na - 1) + (vb / nb) ** 2 / (nb - 1))
+    t = stats.t.ppf(1 - alpha / 2, dfree)
+    return float(diff), float(diff - t * se), float(diff + t * se)
+
+
+def _cohens_d(a: np.ndarray, b: np.ndarray) -> float:
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    na, nb = len(a), len(b)
+    sp = np.sqrt(((na - 1) * a.var(ddof=1) + (nb - 1) * b.var(ddof=1)) / (na + nb - 2))
+    return float((a.mean() - b.mean()) / sp) if sp else float("nan")
+
+
 def condition_stats(
     df: pd.DataFrame,
     value_col: str,
     reference: str = "Control",
     unit: str = "well",
     timepoint: str | None = None,
+    apply_qc: bool = True,
 ) -> dict:
-    """Well-level stats for one readout: aggregate to well means, then compare conditions.
+    """Well-level stats for one readout: aggregate to wells, then compare conditions.
 
-    THIS is the pseudoreplication guard -- cells -> well means (n=6/condition) before any
-    test. Kruskal-Wallis across conditions + Mann-Whitney each condition vs `reference`,
-    BH-corrected. Pass timepoint= to restrict to one plate.
-    # ponytail: well-means + non-parametric; upgrade to an LMM (statsmodels, cell rows,
-    # 1|well/fov random effects) when you add independent differentiations.
+    THIS is the pseudoreplication guard. Aggregation is cell -> per-FOV median ->
+    equal-weight mean across FOVs -> one well value, so a dense FOV can't dominate the
+    well (falls back to a direct well mean if there is no `fov` column). Reports
+    Kruskal-Wallis across conditions plus, per condition vs `reference`: Mann-Whitney p
+    (BH-corrected), mean difference with a 95% Welch CI, and Cohen's d -- effect size +
+    uncertainty, not a p-value alone (n=6 has low power and no CI).
+
+    apply_qc=False keeps ALL cells: run it both ways -- if excluding QC-failing cells
+    changes the answer, QC may be censoring the phenotype (e.g. KO injures cells).
+    Do NOT normalize `value_col` to the cytoskeletal channel unless that channel is
+    shown unaffected by genotype. Cell size is a sensible adjustment covariate (bigger
+    cells hold more total signal) -- regress it out upstream if using total intensity.
+    # ponytail: well-means + Welch CI; upgrade to an LMM (statsmodels, cell rows,
+    # 1|well/fov) once independent differentiations exist.
     """
     from scipy import stats
 
-    d = df[df.get("qc_pass", True) == True]  # noqa: E712 - only QC-passing cells
+    d = df
+    if apply_qc and "qc_pass" in df.columns:
+        d = d[d["qc_pass"] == True]  # noqa: E712
     if timepoint is not None:
         d = d[d["timepoint"] == timepoint]
 
-    well_means = d.groupby(["condition", unit])[value_col].mean().reset_index()
+    # cell -> per-FOV median -> equal-weight mean across FOVs -> well value
+    if "fov" in d.columns:
+        fov_val = d.groupby(["condition", unit, "fov"])[value_col].median().reset_index()
+        well_means = fov_val.groupby(["condition", unit])[value_col].mean().reset_index()
+    else:
+        well_means = d.groupby(["condition", unit])[value_col].mean().reset_index()
     groups = {c: g[value_col].values for c, g in well_means.groupby("condition")}
 
-    out = {"value_col": value_col, "well_means": well_means, "n_per_condition": {c: len(v) for c, v in groups.items()}}
+    out = {
+        "value_col": value_col,
+        "well_means": well_means,
+        "n_per_condition": {c: len(v) for c, v in groups.items()},
+    }
     if len(groups) >= 2:
         out["kruskal_p"] = float(stats.kruskal(*groups.values()).pvalue)
 
+    ref = groups.get(reference)
     pairwise, pvals = [], []
     for cond, vals in groups.items():
-        if cond == reference or reference not in groups:
+        if cond == reference or ref is None:
             continue
-        p = float(stats.mannwhitneyu(vals, groups[reference], alternative="two-sided").pvalue)
-        pairwise.append(cond)
+        p = float(stats.mannwhitneyu(vals, ref, alternative="two-sided").pvalue)
+        diff, lo, hi = _welch_ci(vals, ref)
+        pairwise.append((cond, p, diff, lo, hi, _cohens_d(vals, ref)))
         pvals.append(p)
     if pvals:
         from scipy.stats import false_discovery_control
 
         adj = false_discovery_control(pvals)
         out["vs_reference"] = {
-            c: {"p_raw": p, "p_bh": float(a)} for c, p, a in zip(pairwise, pvals, adj)
+            cond: {
+                "mean_diff": diff,
+                "ci95": (lo, hi),
+                "cohens_d": d_,
+                "p_raw": p,
+                "p_bh": float(a),
+            }
+            for (cond, p, diff, lo, hi, d_), a in zip(pairwise, adj)
         }
     return out
 
@@ -332,17 +452,36 @@ def _demo() -> None:
     assert qc_i.loc[2, "qc_reason"] == "border" and not qc_i.loc[2, "qc_pass"]
     assert qc_i.loc[1, "qc_pass"], "interior cell should pass"
 
-    # stats: fake 2 conditions x 6 wells, KO shifted up -> should separate
+    # stats: fake 2 conditions x 6 wells x 4 FOVs, KO shifted up -> should separate
     rows = []
     for cond, mu in [("Control", 10.0), ("KO", 20.0)]:
         for wi in range(6):
-            for _ in range(30):  # 30 cells/well -> must NOT inflate n
-                rows.append({"condition": cond, "well": f"{cond}{wi}",
-                             "n_lysosomes": rng.normal(mu, 3), "qc_pass": True})
-    res = condition_stats(pd.DataFrame(rows), "n_lysosomes")
+            for fv in range(4):
+                for _ in range(30):  # 30 cells/FOV -> must NOT inflate n
+                    rows.append({"condition": cond, "well": f"{cond}{wi}", "fov": fv,
+                                 "n_lysosomes": rng.normal(mu, 3), "qc_pass": True,
+                                 "qc_reason": "", "n_z_slices": 20 + fv})
+    sdf = pd.DataFrame(rows)
+    res = condition_stats(sdf, "n_lysosomes")
     assert res["n_per_condition"] == {"Control": 6, "KO": 6}, "n = wells, not cells"
-    assert res["vs_reference"]["KO"]["p_bh"] < 0.05, "clear shift should be significant"
-    print("if_features self-check passed:", res["n_per_condition"], "wells/condition")
+    ko = res["vs_reference"]["KO"]
+    assert ko["p_bh"] < 0.05, "clear shift should be significant"
+    assert ko["mean_diff"] > 5 and ko["ci95"][0] > 0, "CI should exclude 0 for a real shift"
+    assert abs(ko["cohens_d"]) > 0.8, "large effect expected"
+
+    # aggregation must NOT inflate n even with an uneven, dense FOV
+    assert len(condition_stats(sdf, "n_lysosomes")["well_means"]) == 12
+
+    qs = qc_summary(sdf)
+    assert (qs["pct_excluded"] == 0).all(), "no exclusions in synthetic set"
+    dep = depth_sensitivity(sdf, "n_lysosomes")
+    assert "rho" in dep and dep["n"] > 0, "depth check should run"
+
+    print(
+        "if_features self-check passed:", res["n_per_condition"], "wells/condition;",
+        f"KO diff={ko['mean_diff']:.1f} "
+        f"CI[{ko['ci95'][0]:.1f},{ko['ci95'][1]:.1f}] d={ko['cohens_d']:.1f}",
+    )
 
 
 if __name__ == "__main__":
