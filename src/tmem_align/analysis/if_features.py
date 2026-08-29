@@ -324,6 +324,8 @@ def _welch_ci(a: np.ndarray, b: np.ndarray, alpha: float = 0.05) -> tuple[float,
     a = np.asarray(a, float)
     b = np.asarray(b, float)
     diff = a.mean() - b.mean()
+    if len(a) < 2 or len(b) < 2:  # need >=2 wells/side for a CI
+        return float(diff), float("nan"), float("nan")
     va, vb, na, nb = a.var(ddof=1), b.var(ddof=1), len(a), len(b)
     se = np.sqrt(va / na + vb / nb)
     if se == 0:
@@ -337,6 +339,8 @@ def _cohens_d(a: np.ndarray, b: np.ndarray) -> float:
     a = np.asarray(a, float)
     b = np.asarray(b, float)
     na, nb = len(a), len(b)
+    if na < 2 or nb < 2:
+        return float("nan")
     sp = np.sqrt(((na - 1) * a.var(ddof=1) + (nb - 1) * b.var(ddof=1)) / (na + nb - 2))
     return float((a.mean() - b.mean()) / sp) if sp else float("nan")
 
