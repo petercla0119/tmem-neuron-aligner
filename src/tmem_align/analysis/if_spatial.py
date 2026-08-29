@@ -164,3 +164,53 @@ def expand_to_cell_bodies(
     dist_from_seed = ndi.distance_transform_edt(seeds == 0)
     grown[dist_from_seed > max_distance] = 0
     return grown.astype(np.int32)
+
+
+# HITL fine-tuned cpsam cell-body model (trained 2026-08-27, 9 corrected FOVs).
+# Not committed — 1.2 GB, lives beside the image data. See
+# 03_contexts/2026_tmem/Fixed-IF Spatial Analysis.md for training/eval provenance.
+_CELLBODY_MODEL = (
+    "/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821"
+    "/hitl_map2_train/models/map2_cellbody_cpsam"
+)
+
+
+def segment_cell_bodies(
+    map2_yx: np.ndarray,
+    model_path: str | Path = _CELLBODY_MODEL,
+    gpu: bool = True,
+) -> np.ndarray:
+    """Segment MAP2 cell bodies with the HITL fine-tuned cpsam model.
+
+    Primary cell-body method (replaces expand_to_cell_bodies, kept as fallback).
+    The model learned soma-vs-neurite, so outlines stop at the cell body instead
+    of following bright neurites the way seeded expansion does.
+
+    INVARIANT: feed the same fixed-LUT uint8 the model trained on (apply_display_lut
+    on the raw MAP2 max-projection), NOT raw 16-bit — Cellpose's per-image
+    normalize99 on raw DN would reintroduce the brightness drift the LUT removes.
+
+    Known ceiling: ~15-20% under-detection (faint + saturated somata; the fixed LUT
+    likely clips the brightest to flat white, removing texture the model keys on).
+    Fine for detection/area-grade features; if the per-cell spatial features later
+    prove boundary-sensitive, the fix is ~6-9 more corrected FOVs + retrain (the
+    map2_cellbody_cpsam model retrains in ~5 min).
+
+    Returns an int32 label array (0 = background).
+    """
+    try:
+        from cellpose import models
+    except ImportError as exc:
+        raise ImportError("Install cellpose: pip install cellpose") from exc
+
+    if not Path(model_path).exists():
+        raise FileNotFoundError(
+            f"Fine-tuned cell-body model not found: {model_path}. "
+            "It is not committed (1.2 GB); retrain via notebooks/ or use "
+            "expand_to_cell_bodies() as the fallback."
+        )
+
+    model = models.CellposeModel(gpu=gpu, pretrained_model=str(model_path))
+    img_u8 = (apply_display_lut(map2_yx, CH_MAP2) * 255).astype(np.uint8)
+    masks, _, _ = model.eval(img_u8)
+    return masks.astype(np.int32)
