@@ -71,19 +71,28 @@ def detect_lysosomes(
     bg_percentile: float = 50.0,
     threshold: float | None = None,
     min_size_px: int = 3,
+    bg_floor: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Background-subtract LAMP1, threshold, label puncta over the whole FOV.
 
     Returns (labels, corrected). One global FOV threshold (Otsu by default) so puncta
     are detected the SAME way in every cell -- per-cell Otsu is unstable for cells with
     few lysosomes. Pass a fixed DN threshold for cross-plate comparability if Otsu drifts.
+
+    bg_floor: if given, subtract this fixed DN instead of the per-FOV bg_percentile.
+      Eliminates brightness-adaptivity from background estimation. Use LAMP1 LUT floor
+      (120 DN) to fully decouple detection from per-condition intensity differences.
+      When combined with a fixed `threshold`, detection is completely condition-blind.
     # ponytail: Otsu default; swap to fixed DN (LUT floor) if the threshold wanders
     """
     from skimage.filters import threshold_otsu
     from skimage.measure import label
 
     img = np.asarray(lamp1_yx, dtype=np.float32)
-    corrected = np.clip(img - np.percentile(img, bg_percentile), 0, None)
+    if bg_floor is not None:
+        corrected = np.clip(img - bg_floor, 0, None)
+    else:
+        corrected = np.clip(img - np.percentile(img, bg_percentile), 0, None)
     thr = threshold_otsu(corrected) if threshold is None else threshold
     labels = label(corrected > thr).astype(np.int32)
     # drop specks below min_size_px (explicit, avoids the deprecated remove_small_objects arg)
@@ -209,11 +218,22 @@ def qc_filter_cells(
     return pd.DataFrame(rows)
 
 
-def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.DataFrame:
+def analyze_fov(
+    nd2_path: str | Path,
+    min_focus: float | None = None,
+    lyso_threshold: float | None = None,
+    bg_floor: float | None = None,
+) -> pd.DataFrame:
     """Full per-FOV pipeline: load -> segment -> QC -> features, tagged with metadata.
 
     Returns one row per cell (QC cells kept, flagged by qc_pass) with condition/well/
     fov/timepoint columns prepended. Requires nd2 + cellpose (see if_spatial).
+
+    lyso_threshold: fixed DN threshold for detect_lysosomes (post-bg-subtraction).
+      None = per-FOV Otsu (default, backward compatible). Pass a value derived from
+      Control/KI FOVs to decouple detection from per-condition brightness.
+    bg_floor: fixed DN to subtract as background instead of per-FOV bg_percentile.
+      None = per-FOV p50 (default). Use LAMP1 LUT floor (120) for full decoupling.
     """
     from .if_spatial import load_fov, segment_cell_bodies, segment_nuclei
 
@@ -225,7 +245,9 @@ def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.Data
 
     nuclei = segment_nuclei(ch[CH_DAPI])
     cells = segment_cell_bodies(ch[CH_MAP2])
-    lyso_labels, lamp1_corr = detect_lysosomes(ch[CH_LAMP1])
+    lyso_labels, lamp1_corr = detect_lysosomes(
+        ch[CH_LAMP1], threshold=lyso_threshold, bg_floor=bg_floor
+    )
 
     feats = per_cell_features(cells, nuclei, ch, lyso_labels, lamp1_corr)
     qc = qc_filter_cells(cells, nuclei, ch[CH_DAPI])
@@ -235,17 +257,26 @@ def analyze_fov(nd2_path: str | Path, min_focus: float | None = None) -> pd.Data
     return df
 
 
-def build_table(nd2_paths: list[str | Path], min_focus: float | None = None) -> pd.DataFrame:
+def build_table(
+    nd2_paths: list[str | Path],
+    min_focus: float | None = None,
+    lyso_threshold: float | None = None,
+    bg_floor: float | None = None,
+) -> pd.DataFrame:
     """Concatenate analyze_fov over many FOVs into the one tidy table.
 
     Glob the paths yourself, e.g.
         paths = sorted(Path(data/'d7').rglob('*.nd2'))
         df = build_table(paths)
+
+    lyso_threshold / bg_floor: passed through to analyze_fov -> detect_lysosomes.
+      See analyze_fov docstring. Both None = original Otsu behavior (backward compat).
     """
     frames = []
     for p in nd2_paths:
         try:
-            frames.append(analyze_fov(p, min_focus=min_focus))
+            frames.append(analyze_fov(p, min_focus=min_focus,
+                                       lyso_threshold=lyso_threshold, bg_floor=bg_floor))
         except Exception as exc:  # noqa: BLE001 - keep going, report at end
             print(f"  SKIP {Path(p).name}: {exc}")
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
