@@ -1,0 +1,37 @@
+Processing 72 FOVs ...
+/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/.venv/lib/python3.13/site-packages/cellpose/dynamics.py:541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /Users/runner/work/pytorch/pytorch/aten/src/ATen/Context.cpp:823.)
+  coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+
+Wrote 1380 cell rows -> /Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/reports/if_segmentation_pilot/d7_percell.csv
+
+=== QC summary ===
+   condition  qc_pass     qc_reason    n
+0    Control    False        border   11
+1    Control    False      pyknotic    1
+2    Control    False  size_outlier    6
+3    Control     True                434
+4         KI    False        border    6
+5         KI    False      pyknotic    6
+6         KI    False  size_outlier    8
+7         KI     True                375
+8         KO    False        border   13
+9         KO    False      pyknotic    1
+10        KO    False  size_outlier   19
+11        KO     True                500
+
+=== per-condition cell counts (qc_pass only) ===
+          n_lysosomes                                               lyso_mean_size_um2                                                                   lamp1_mean                                                                                     perinuclear_index                                                                           tmem_manders_m1                                                  
+                count      mean       std  min  25%  50%  75%   max              count      mean       std  min       25%       50%       75%        max      count        mean         std       min         25%         50%          75%          max             count       mean       std       min       25%        50%        75%        max           count      mean       std  min  25%  50%  75%       max
+condition                                                                                                                                                                                                                                                                                                                                                                                                            
+Control         434.0  6.407834  5.958055  0.0  2.0  5.0  9.0  35.0              434.0  1.701605  2.257138  0.0  0.194886  0.936036  2.350296  18.300816      434.0  631.729539  602.631174  3.687963  133.689960  471.851349   974.624893  4027.331299             367.0  13.601421  8.222957  0.360217  7.161221  12.521336  18.265450  41.389688           434.0  0.000127  0.000725  0.0  0.0  0.0  0.0  0.011114
+KI              375.0  5.554667  4.894237  0.0  2.0  4.0  8.0  27.0              375.0  2.114503  2.732702  0.0  0.234252  1.347192  2.741040  23.362992      375.0  799.375595  694.207144  8.876526  182.160149  691.038330  1166.853516  4185.582031             317.0  12.222068  8.996133  0.382346  6.438581  11.004353  16.206229  56.570099           375.0  0.011157  0.044079  0.0  0.0  0.0  0.0  0.476541
+KO              500.0  4.746000  5.150392  0.0  0.0  3.5  8.0  31.0              500.0  0.776338  1.482578  0.0  0.000000  0.246110  0.981897  16.271280      500.0  393.096726  450.304645  1.743587  108.623032  236.666374   501.582222  3241.997559             338.0  13.396393  8.678433  0.319559  6.420459  12.587820  18.240310  50.673471           500.0  0.000151  0.001607  0.0  0.0  0.0  0.0  0.025168
+
+=== condition stats (well-level) ===
+  n_lysosomes: KW p=0.181  KO vs Ctrl BH=0.186  KI vs Ctrl BH=0.310
+  lyso_mean_size_um2: KW p=0.007  KO vs Ctrl BH=0.017  KI vs Ctrl BH=0.589
+  lamp1_mean: KW p=0.027  KO vs Ctrl BH=0.186  KI vs Ctrl BH=0.394
+  perinuclear_index: KW p=0.240  KO vs Ctrl BH=0.937  KI vs Ctrl BH=0.359
+  tmem_manders_m1: KW p=0.051  KO vs Ctrl BH=0.818  KI vs Ctrl BH=0.130
+
+Done.
