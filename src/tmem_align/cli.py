@@ -9,7 +9,7 @@ import numpy as np
 
 from .config import ensure_dirs, load_config, load_plate_map, load_roi_annotations, validate_config as validate
 from .export_zarr import export_ome_zarr
-from .preprocess import calculate_ic_fields_by_timepoint
+from .preprocess import calculate_ic_field_for_plate, calculate_ic_fields_by_timepoint
 from .quantify import quantify_puncta_vs_diffuse
 from .register import register_file_to_reference
 from .roi import build_roi_timeseries, roi_from_table
@@ -83,19 +83,63 @@ def extract_nd2_command(
 @click.argument("plate_dir")
 @click.option("--output", default=None, help="Output .npz path (default: <plate_dir>/ic_fields.npz).")
 @click.option("--sample-fraction", type=float, default=0.25, show_default=True)
-@click.option("--workers", type=int, default=None, help="Parallel processes (default: one per timepoint).")
-def compute_ic_fields_command(plate_dir: str, output: str | None, sample_fraction: float, workers: int | None) -> None:
-    """Compute per-timepoint illumination correction fields for a plate and save as .npz."""
+@click.option("--workers", type=int, default=None, help="Parallel processes (default: one per timepoint, ignored in --pool mode).")
+@click.option("--pool/--per-timepoint", default=False, show_default=True, help="Pool all images into one field (--pool) or compute one field per timepoint subdir (--per-timepoint, default).")
+@click.option("--estimate-darkfield/--no-estimate-darkfield", default=False, show_default=True, help="Also estimate a scalar camera-offset darkfield per timepoint (saved as <key>_darkfield).")
+def compute_ic_fields_command(
+    plate_dir: str,
+    output: str | None,
+    sample_fraction: float,
+    workers: int | None,
+    pool: bool,
+    estimate_darkfield: bool,
+) -> None:
+    """Compute illumination correction fields for a plate and save as .npz.
+
+    Default (--per-timepoint): one CYX field per timepoint subdir, keyed by dirname.
+    With --pool: one CYX field across all images, keyed as '_pooled'.
+    With --estimate-darkfield: saves scalar darkfield under '<key>_darkfield'.
+    """
     plate_path = Path(plate_dir)
     out = Path(output) if output else plate_path / "ic_fields.npz"
     try:
-        ic_fields = calculate_ic_fields_by_timepoint(plate_path, sample_fraction=sample_fraction, n_workers=workers)
+        if pool:
+            result = calculate_ic_field_for_plate(
+                plate_path, sample_fraction=sample_fraction, estimate_darkfield=estimate_darkfield
+            )
+            if estimate_darkfield:
+                field, dark = result
+                ic_fields_raw = {"_pooled": field, "_pooled_darkfield": np.array(dark)}
+            else:
+                ic_fields_raw = {"_pooled": result}
+        else:
+            raw = calculate_ic_fields_by_timepoint(
+                plate_path,
+                sample_fraction=sample_fraction,
+                n_workers=workers,
+                estimate_darkfield=estimate_darkfield,
+            )
+            ic_fields_raw = {}
+            for name, val in raw.items():
+                if estimate_darkfield:
+                    field, dark = val
+                    ic_fields_raw[name] = field
+                    ic_fields_raw[f"{name}_darkfield"] = np.array(dark)
+                else:
+                    ic_fields_raw[name] = val
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
-    np.savez_compressed(out, **ic_fields)
-    click.echo(f"Wrote {out} ({len(ic_fields)} timepoints)")
-    for name, ic in sorted(ic_fields.items()):
-        click.echo(f"  {name}: shape={ic.shape}, range=[{ic.min():.2f}, {ic.max():.2f}]")
+
+    np.savez_compressed(out, **ic_fields_raw)
+    field_keys = [k for k in ic_fields_raw if not k.endswith("_darkfield")]
+    click.echo(f"Wrote {out} ({len(field_keys)} field(s))")
+    for name in sorted(field_keys):
+        ic = ic_fields_raw[name]
+        dark_str = ""
+        if estimate_darkfield:
+            dark = float(ic_fields_raw[f"{name}_darkfield"])
+            dark_str = f", darkfield={dark:.1f}"
+        click.echo(f"  {name}: shape={ic.shape}, range=[{ic.min():.2f}, {ic.max():.2f}]{dark_str}")
 
 
 @main.command("validate-config")

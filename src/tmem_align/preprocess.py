@@ -21,6 +21,11 @@ from skimage.transform import rescale, resize
 
 from tmem_align.io import find_images, normalize_to_2d, read_image
 
+# ponytail: min flatfield value. Single source of truth for the divide-by guard —
+# enforced in the apply path so correction is safe for ANY field (rescaled or not),
+# and in rescaling. Caps amplification of near-zero regions at ~10x.
+IC_FIELD_FLOOR = 0.1
+
 
 # ---------------------------------------------------------------------------
 # IC field calculation (per-well or per-plate)
@@ -31,6 +36,7 @@ def calculate_ic_field(
     images: list[np.ndarray] | list[str | Path],
     smooth: int | None = None,
     rescale_field: bool = True,
+    center: str = "median",
     sample_fraction: float = 1.0,
     channel: int | None = None,
     n_workers: int = 4,
@@ -51,7 +57,11 @@ def calculate_ic_field(
         images: List of 2D/3D image arrays or file paths.
         smooth: Gaussian sigma for smoothing the field. Defaults to ~1/40 of the
             image's short side.
-        rescale_field: If True, normalize the field by its mean (centered on 1).
+        rescale_field: If True, normalize the field so it is centered on 1.
+        center: Statistic to center the field on when rescaling — ``"median"``
+            (default) or ``"mean"``. Median is more robust to a few saturated
+            tiles pulling the center up (which would globally under-correct).
+            NB: the 2026-07-10 A/B longitudinal-pilot baseline used ``"mean"``.
         sample_fraction: Fraction of images to use (randomly sampled). Default 1.0.
         channel: If set, extract this channel from multi-channel images before
             computing the IC field (returns 2D). If None and images are
@@ -82,6 +92,10 @@ def calculate_ic_field(
     # is ~16 MB/image * n_sampled; process one channel at a time to cap the
     # float64 temporary. Switch to a streaming/quantile estimator if it blows up.
     loaded = [first] + list(_iter_images(images[1:], n_workers))
+    # Reduce ZCYX (4-D) → CYX via Z-median before estimation (vignetting is
+    # lateral; same field applies to every Z plane on the correction side).
+    loaded = [_zcyx_to_cyx(img) for img in loaded]
+    first = loaded[0]
 
     multichannel = first.ndim == 3 and channel is None
     if multichannel:
@@ -90,13 +104,13 @@ def calculate_ic_field(
             for c in range(first.shape[0])
         ]
         median_field = np.stack(median_channels, axis=0)
-        field = _smooth_and_rescale_multichannel(median_field, smooth, rescale_field)
+        field = _smooth_and_rescale_multichannel(median_field, smooth, rescale_field, center)
     else:
         stack = np.stack([_extract_channel(img, channel) for img in loaded], axis=0).astype(
             np.float64
         )
         median_field = np.median(stack, axis=0)
-        field = _smooth_and_rescale_2d(median_field, smooth, rescale_field)
+        field = _smooth_and_rescale_2d(median_field, smooth, rescale_field, center)
 
     if estimate_darkfield:
         return field, _estimate_darkfield(loaded)
@@ -193,6 +207,7 @@ def calculate_ic_field_for_well(
     sample_fraction: float = 1.0,
     smooth: int | None = None,
     seed: int | None = 0,
+    center: str = "median",
 ) -> np.ndarray:
     """Calculate IC field from all images in a well folder.
 
@@ -202,7 +217,9 @@ def calculate_ic_field_for_well(
     paths = find_images(image_folder)
     if not paths:
         raise FileNotFoundError(f"No images found in {image_folder}")
-    return calculate_ic_field(paths, smooth=smooth, sample_fraction=sample_fraction, seed=seed)
+    return calculate_ic_field(
+        paths, smooth=smooth, sample_fraction=sample_fraction, seed=seed, center=center
+    )
 
 
 def calculate_ic_field_for_plate(
@@ -211,7 +228,9 @@ def calculate_ic_field_for_plate(
     sample_fraction: float = 0.25,
     smooth: int | None = None,
     seed: int | None = 0,
-) -> np.ndarray:
+    center: str = "median",
+    estimate_darkfield: bool = False,
+) -> np.ndarray | tuple[np.ndarray, float]:
     """Calculate IC field from images across an entire plate.
 
     Collects images from all well subfolders matching well_pattern, samples
@@ -227,7 +246,52 @@ def calculate_ic_field_for_plate(
         raise FileNotFoundError(f"No images found in {plate_folder}/{well_pattern}")
 
     # ponytail: default 25% sampling for plate-level (many images)
-    return calculate_ic_field(all_images, smooth=smooth, sample_fraction=sample_fraction, seed=seed)
+    return calculate_ic_field(
+        all_images,
+        smooth=smooth,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        center=center,
+        estimate_darkfield=estimate_darkfield,
+    )
+
+
+def calculate_ic_fields_by_channel(
+    images_by_channel: dict[str, list[np.ndarray | str | Path]],
+    smooth: int | None = None,
+    sample_fraction: float = 1.0,
+    estimate_darkfield: bool = False,
+    seed: int | None = 0,
+    n_workers: int = 4,
+) -> dict[str, np.ndarray | tuple[np.ndarray, float]]:
+    """Calculate one 2-D IC field per named channel.
+
+    Accepts pre-split single-channel images (2-D YX or 3-D ZYX per FOV).
+    ZYX stacks are reduced to YX via Z-median before pooling across FOVs.
+    Returns ``{channel_name: 2D_field}`` or ``{channel_name: (2D_field, darkfield_scalar)}``.
+
+    The caller is responsible for extracting channel planes by name from ND2 metadata
+    so that index-based channel mis-keying (e.g. the D20_F1 channel swap) is avoided.
+    """
+    out: dict[str, np.ndarray | tuple[np.ndarray, float]] = {}
+    for name, imgs in images_by_channel.items():
+        # Reduce ZYX (3-D single-channel z-stack) → YX so calculate_ic_field
+        # doesn't mistake the Z axis for a channel axis.
+        reduced: list[np.ndarray] = []
+        for img in imgs:
+            arr = _load_image(img)
+            if arr.ndim == 3:  # ZYX → YX
+                arr = np.median(arr.astype(np.float64), axis=0)
+            reduced.append(arr)
+        out[name] = calculate_ic_field(
+            reduced,
+            smooth=smooth,
+            sample_fraction=sample_fraction,
+            estimate_darkfield=estimate_darkfield,
+            seed=seed,
+            n_workers=n_workers,
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +301,17 @@ def calculate_ic_field_for_plate(
 
 def _compute_one_timepoint(args):
     """Worker for parallel IC field computation (must be top-level for pickling)."""
-    tp_dir, smooth, sample_fraction, seed = args
+    tp_dir, smooth, sample_fraction, seed, center, estimate_darkfield = args
     images = find_images(tp_dir)
     if not images:
         return None
     return tp_dir.name, calculate_ic_field(
-        images, smooth=smooth, sample_fraction=sample_fraction, seed=seed
+        images,
+        smooth=smooth,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        center=center,
+        estimate_darkfield=estimate_darkfield,
     )
 
 
@@ -252,7 +321,9 @@ def calculate_ic_fields_by_timepoint(
     smooth: int | None = None,
     n_workers: int | None = None,
     seed: int | None = 0,
-) -> dict[str, np.ndarray]:
+    center: str = "median",
+    estimate_darkfield: bool = False,
+) -> dict[str, np.ndarray | tuple[np.ndarray, float]]:
     """Calculate per-timepoint IC fields for a plate.
 
     Expects plate_dir to contain subdirectories, one per timepoint/imaging
@@ -265,6 +336,7 @@ def calculate_ic_fields_by_timepoint(
         smooth: Gaussian sigma for smoothing. None for auto.
         n_workers: Parallel processes for timepoints. None = number of timepoints.
         seed: RNG seed for reproducible sampling. Default 0.
+        estimate_darkfield: If True, values are ``(field, darkfield_scalar)``.
 
     Returns:
         Dict mapping timepoint dirname → IC field array (2D or CYX).
@@ -279,7 +351,7 @@ def calculate_ic_fields_by_timepoint(
     if n_workers is None:
         n_workers = len(timepoint_dirs)
 
-    work = [(d, smooth, sample_fraction, seed) for d in timepoint_dirs]
+    work = [(d, smooth, sample_fraction, seed, center, estimate_darkfield) for d in timepoint_dirs]
 
     if n_workers <= 1:
         results = [_compute_one_timepoint(w) for w in work]
@@ -387,7 +459,11 @@ def _apply_ic_field_float(
         return img
 
     field = np.array(ic_field, dtype=np.float64)  # copy so we don't mutate caller
-    field[field == 0] = 1
+    # ponytail: floor here — not just "zeros -> 1" — so apply is safe for ANY
+    # field regardless of how it was normalized (no silent coupling to rescaling),
+    # and a dead pixel gets amplified like its dim neighbors instead of becoming a
+    # dark speck. No-op for a properly normalized field.
+    field = np.clip(field, IC_FIELD_FLOOR, None)
     field = _broadcast_like(field, img)
     return img / field
 
@@ -460,6 +536,13 @@ def _estimate_darkfield(loaded: list[np.ndarray]) -> float:
     return float(np.percentile(mins, 1))
 
 
+def _zcyx_to_cyx(img: np.ndarray) -> np.ndarray:
+    """Reduce ZCYX (4-D) → CYX via Z-median. Pass through 3-D (CYX) and 2-D (YX)."""
+    if img.ndim == 4:
+        return np.median(img.astype(np.float64), axis=0)
+    return img
+
+
 def _load_image(img) -> np.ndarray:
     """Load an image, whether it's an array or a path."""
     if isinstance(img, (str, Path)):
@@ -486,41 +569,50 @@ def _extract_channel(img: np.ndarray, channel: int | None) -> np.ndarray:
 
 
 def _smooth_and_rescale_2d(
-    field: np.ndarray, smooth: int | None, rescale_field: bool
+    field: np.ndarray, smooth: int | None, rescale_field: bool, center: str = "median"
 ) -> np.ndarray:
     """Apply gaussian smoothing and optional rescaling to a 2D IC field."""
     if smooth is None:
-        # ponytail: the IC field is a low-frequency illumination profile. Scale
-        # sigma to ~1/40 of the short side so it adapts from tiny test frames to
-        # full 2868px images, instead of the old formula that was always clamped
-        # to 50 (dead code).
-        smooth = max(1, min(field.shape[-2], field.shape[-1]) // 40)
+        # ponytail: short_side/20 (≈102 px for 2048px images) chosen from
+        # flatfield validation sweep 2026-08-31 — first sigma where the MAP2
+        # field is free of cell-shaped structure while still capturing real
+        # vignette (spatial CV% 6.6%). /40 left visible cloud-like biology.
+        smooth = max(1, min(field.shape[-2], field.shape[-1]) // 20)
     smoothed = gaussian_filter(field.astype(np.float64), sigma=smooth)
     if rescale_field:
-        smoothed = _rescale_field(smoothed)
+        smoothed = _rescale_field(smoothed, center)
     return smoothed
 
 
 def _smooth_and_rescale_multichannel(
-    field: np.ndarray, smooth: int | None, rescale_field: bool
+    field: np.ndarray, smooth: int | None, rescale_field: bool, center: str = "median"
 ) -> np.ndarray:
     """Apply smoothing/rescaling independently per channel."""
     return np.stack(
-        [_smooth_and_rescale_2d(field[c], smooth, rescale_field) for c in range(field.shape[0])],
+        [
+            _smooth_and_rescale_2d(field[c], smooth, rescale_field, center)
+            for c in range(field.shape[0])
+        ],
         axis=0,
     )
 
 
-def _rescale_field(field: np.ndarray) -> np.ndarray:
-    """Normalize an IC field by its mean so it is centered on 1.
+def _rescale_field(field: np.ndarray, center: str = "median") -> np.ndarray:
+    """Normalize an IC field by its mean or median so it is centered on 1.
 
-    Dividing by a mean-centered field attenuates the bright center AND amplifies
-    genuinely dim/vignetted corners, preserving overall intensity.
+    Dividing by a centered field attenuates the bright center AND amplifies
+    genuinely dim/vignetted corners, preserving overall intensity. ``center``
+    picks the statistic: ``"mean"`` (default) or ``"median"`` (robust to a few
+    saturated tiles pulling the center up).
     """
-    center = float(np.mean(field))
-    if center <= 0:
-        center = 1.0
-    field = field / center
-    # ponytail: floor the field at 0.1 so noise in near-zero regions isn't
-    # amplified >10x when we divide by it.
-    return np.clip(field, 0.1, None)
+    if center == "mean":
+        c = float(np.mean(field))
+    elif center == "median":
+        c = float(np.median(field))
+    else:
+        raise ValueError(f"center must be 'mean' or 'median', got {center!r}")
+    if c <= 0:
+        c = 1.0
+    field = field / c
+    # ponytail: floor so noise in near-zero regions isn't amplified >10x on divide.
+    return np.clip(field, IC_FIELD_FLOOR, None)
