@@ -10,10 +10,12 @@ from tmem_align.preprocess import (
     _extract_channel,
     _load_image,
     _rescale_field,
+    _zcyx_to_cyx,
     apply_ic_field,
     calculate_ic_field,
     calculate_ic_field_for_plate,
     calculate_ic_field_for_well,
+    calculate_ic_fields_by_channel,
     preprocess_image,
     subtract_background,
 )
@@ -72,7 +74,7 @@ class TestRescaleField:
         # must make the dim corner < 1 (so dividing by it BRIGHTENS that corner).
         field = np.full((10, 10), 1000.0)
         field[0, 0] = 500.0
-        result = _rescale_field(field)
+        result = _rescale_field(field, center="mean")
         assert result[0, 0] < 1.0  # dim corner amplified, not just center attenuated
         assert result.mean() == pytest.approx(1.0)
 
@@ -160,9 +162,18 @@ class TestCalculateICField:
         assert field.shape == (32, 32)
 
     def test_rescale_field_centered_on_mean(self, flat_images):
-        field = calculate_ic_field(flat_images, rescale_field=True)
+        field = calculate_ic_field(flat_images, rescale_field=True, center="mean")
         # mean-normalized field is centered on 1 (both attenuation and gain)
         assert field.mean() == pytest.approx(1.0)
+
+    def test_rescale_field_centered_on_median(self, flat_images):
+        field = calculate_ic_field(flat_images, rescale_field=True, center="median")
+        # median-normalized field has its median at 1 (unless floored)
+        assert np.median(field) == pytest.approx(1.0)
+
+    def test_invalid_center_raises(self, flat_images):
+        with pytest.raises(ValueError, match="center must be"):
+            calculate_ic_field(flat_images, rescale_field=True, center="mode")
 
     def test_no_rescale(self, constant_images):
         field = calculate_ic_field(constant_images, rescale_field=False)
@@ -247,12 +258,20 @@ class TestApplyICField:
         assert result.shape == (3, 2, 8, 8)
         np.testing.assert_array_equal(result, 100)
 
-    def test_zeros_in_field_no_crash(self):
+    def test_zeros_in_field_floored(self):
         img = np.full((8, 8), 100, dtype=np.uint16)
         field = np.zeros((8, 8))
         result = apply_ic_field(img, field)
-        # zeros replaced with 1, so result = 100/1 = 100
-        np.testing.assert_array_equal(result, 100)
+        # zeros floored to IC_FIELD_FLOOR (0.1), so result = 100 / 0.1 = 1000
+        np.testing.assert_array_equal(result, 1000)
+
+    def test_small_nonzero_field_floored(self):
+        # the actual guard gap: a non-rescaled field with tiny-but-nonzero values
+        # must not amplify unboundedly — apply floors it regardless of provenance
+        img = np.full((8, 8), 100, dtype=np.uint16)
+        field = np.full((8, 8), 0.001)  # would be 100/0.001 = 100000 without floor
+        result = apply_ic_field(img, field)
+        np.testing.assert_array_equal(result, 1000)  # floored to 0.1 → 100/0.1
 
     def test_returns_uint16(self):
         img = np.full((8, 8), 1000, dtype=np.uint16)
@@ -467,3 +486,103 @@ class TestWellAndPlate:
     def test_plate_empty_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             calculate_ic_field_for_plate(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# G1/G2/G5 — ZCYX estimation and Z-broadcast application
+# ---------------------------------------------------------------------------
+
+
+class TestZCYXSupport:
+    def test_zcyx_to_cyx_reduces_4d(self):
+        img = np.ones((5, 3, 8, 8), dtype=np.uint16) * 100
+        result = _zcyx_to_cyx(img)
+        assert result.shape == (3, 8, 8)
+
+    def test_zcyx_to_cyx_passthrough_3d(self):
+        img = np.ones((3, 8, 8), dtype=np.uint16)
+        assert _zcyx_to_cyx(img) is img
+
+    def test_zcyx_to_cyx_passthrough_2d(self):
+        img = np.ones((8, 8), dtype=np.uint16)
+        assert _zcyx_to_cyx(img) is img
+
+    def test_calculate_ic_field_zcyx_input(self):
+        """calculate_ic_field must not crash on 4-D (ZCYX) inputs (G1 fix)."""
+        rng = np.random.default_rng(42)
+        imgs = [rng.integers(100, 500, size=(4, 2, 16, 16), dtype=np.uint16) for _ in range(6)]
+        field = calculate_ic_field(imgs)
+        # Field should be CYX — same C as input
+        assert field.shape == (2, 16, 16)
+        assert np.all(field > 0)
+
+    def test_zcyx_field_z_broadcast_apply(self):
+        """A CYX field applied to a ZCYX image must produce a ZCYX output (G5 fix)."""
+        rng = np.random.default_rng(7)
+        imgs = [rng.integers(100, 500, size=(4, 2, 16, 16), dtype=np.uint16) for _ in range(6)]
+        field = calculate_ic_field(imgs)  # (2, 16, 16) CYX
+
+        # Apply to a fresh ZCYX image
+        z_img = rng.integers(200, 800, size=(4, 2, 16, 16), dtype=np.uint16)
+        corrected = apply_ic_field(z_img, field)
+        assert corrected.shape == z_img.shape
+        assert corrected.dtype == np.uint16
+
+    def test_2d_input_still_works(self):
+        """2-D (Z=1, YX) inputs must still produce a 2-D field (no regression)."""
+        rng = np.random.default_rng(0)
+        imgs = [rng.integers(100, 500, size=(16, 16), dtype=np.uint16) for _ in range(5)]
+        field = calculate_ic_field(imgs)
+        assert field.ndim == 2
+
+
+# ---------------------------------------------------------------------------
+# G3 — channel-name-keyed fields
+# ---------------------------------------------------------------------------
+
+
+class TestCalculateICFieldsByChannel:
+    def test_returns_dict_keyed_by_name(self):
+        rng = np.random.default_rng(1)
+        imgs_by_ch = {
+            "MAP2": [rng.integers(100, 500, size=(16, 16), dtype=np.uint16) for _ in range(5)],
+            "LAMP1": [rng.integers(100, 500, size=(16, 16), dtype=np.uint16) for _ in range(5)],
+        }
+        result = calculate_ic_fields_by_channel(imgs_by_ch)
+        assert set(result.keys()) == {"MAP2", "LAMP1"}
+        assert result["MAP2"].shape == (16, 16)
+        assert result["LAMP1"].shape == (16, 16)
+
+    def test_zyx_single_channel_input(self):
+        """ZYX (3-D single-channel) inputs must be reduced to YX before pooling."""
+        rng = np.random.default_rng(2)
+        imgs_by_ch = {
+            "DAPI": [rng.integers(100, 500, size=(5, 16, 16), dtype=np.uint16) for _ in range(4)],
+        }
+        result = calculate_ic_fields_by_channel(imgs_by_ch)
+        assert result["DAPI"].shape == (16, 16)
+
+    def test_swapped_channel_isolation(self):
+        """Fields from different channels must not share values (name-keying isolates channels)."""
+        # Two channels with very different intensity levels
+        imgs_by_ch = {
+            "ch_bright": [np.full((16, 16), 2000, dtype=np.uint16)] * 5,
+            "ch_dim": [np.full((16, 16), 200, dtype=np.uint16)] * 5,
+        }
+        result = calculate_ic_fields_by_channel(imgs_by_ch)
+        # Both fields are normalized to ~1, but they were estimated from separate pools
+        assert result["ch_bright"].shape == (16, 16)
+        assert result["ch_dim"].shape == (16, 16)
+        # Both should be centered near 1 (uniform input → uniform field → normalized to 1)
+        assert result["ch_bright"].mean() == pytest.approx(1.0, abs=0.05)
+        assert result["ch_dim"].mean() == pytest.approx(1.0, abs=0.05)
+
+    def test_with_darkfield(self):
+        rng = np.random.default_rng(4)
+        imgs_by_ch = {
+            "MAP2": [rng.integers(100, 500, size=(16, 16), dtype=np.uint16) for _ in range(5)],
+        }
+        result = calculate_ic_fields_by_channel(imgs_by_ch, estimate_darkfield=True)
+        field, dark = result["MAP2"]
+        assert field.shape == (16, 16)
+        assert isinstance(dark, float)

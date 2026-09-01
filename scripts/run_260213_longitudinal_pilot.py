@@ -155,8 +155,11 @@ def main() -> None:
         )
         for d in tp_dirs:
             imgs = find_images(d)
+            # ponytail: pin center="mean" — the A/B illumination-correction baseline
+            # was computed with mean centering (before median became the default).
+            # Keep it explicit here so re-running the pilot reproduces that baseline.
             ic_fields[d.name] = calculate_ic_field(
-                imgs, sample_fraction=args.ic_sample_fraction, seed=0
+                imgs, sample_fraction=args.ic_sample_fraction, seed=0, center="mean"
             )
             print(f"IC field for {d.name}: {len(imgs)} images -> shape {ic_fields[d.name].shape}")
 

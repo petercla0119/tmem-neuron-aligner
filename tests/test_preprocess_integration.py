@@ -136,7 +136,7 @@ class TestLargeImages:
 class TestSingleImageIC:
     def test_single_image(self):
         img = _gradient_image(32, 32)
-        field = calculate_ic_field([img], rescale_field=True)
+        field = calculate_ic_field([img], rescale_field=True, center="mean")
         assert field.shape == (32, 32)
         # mean-normalized → centered on 1 (both attenuation and amplification)
         assert field.mean() == pytest.approx(1.0)
