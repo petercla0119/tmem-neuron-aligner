@@ -45,11 +45,50 @@ def apply_display_lut(img_yx: np.ndarray, channel: str) -> np.ndarray:
     return np.clip((img - lo) / (hi - lo + 1e-6), 0, 1)
 
 
-def load_fov(nd2_path: str | Path) -> dict[str, np.ndarray]:
-    """Load one ND2 FOV; max-project Z; return {channel_name: yx_uint16_array}.
+ICFields = dict[str, "np.ndarray | tuple[np.ndarray, float]"]
 
-    Channel names come from ND2 metadata (e.g. '488nm', '561nm') so files with
-    a channel-order swap are handled correctly without special-casing.
+
+def load_ic_fields(npz_path: str | Path) -> ICFields:
+    """Load per-channel IC fields from a .npz produced by compute_ic_fields_for_if.py.
+
+    Keys are channel names (e.g. '488nm'); values are (field_2d, darkfield_scalar)
+    when a matching '<key>_darkfield' entry exists, else just field_2d.
+    """
+    data = np.load(npz_path)
+    result: ICFields = {}
+    for key in data.files:
+        if key.endswith("_darkfield"):
+            continue
+        dark_key = f"{key}_darkfield"
+        result[key] = (data[key], float(data[dark_key])) if dark_key in data.files else data[key]
+    return result
+
+
+def _apply_ic_zcyx(
+    arr: np.ndarray,
+    channel_names: list[str],
+    ic_fields: ICFields,
+) -> np.ndarray:
+    """Dark-subtract and flat-divide a ZCYX uint16 array. Returns uint16."""
+    out = arr.astype(np.float32)
+    for ci, ch in enumerate(channel_names):
+        if ch not in ic_fields:
+            continue
+        entry = ic_fields[ch]
+        flat, dark = entry if isinstance(entry, tuple) else (entry, 0.0)
+        flat_c = np.clip(np.asarray(flat, dtype=np.float32), 0.1, None)
+        out[:, ci] = np.clip(out[:, ci] - dark, 0.0, None) / flat_c[np.newaxis]
+    return np.clip(np.rint(out), 0, 65535).astype(np.uint16)
+
+
+def load_fov(
+    nd2_path: str | Path,
+    ic_fields: ICFields | None = None,
+) -> dict[str, np.ndarray]:
+    """Load one ND2 FOV; optionally IC-correct; max-project Z; return {channel_name: yx_uint16}.
+
+    IC is applied to the full ZCYX stack before max-projection (dark → flat → max-project).
+    Pass ic_fields=load_ic_fields(npz) to enable; None (default) is a no-op.
     """
     try:
         import nd2
@@ -64,7 +103,9 @@ def load_fov(nd2_path: str | Path) -> dict[str, np.ndarray]:
         arr = f.asarray()  # ZCYX for z-stacks, CYX for single-Z
 
     if arr.ndim == 4:
-        arr = arr.max(axis=0)  # ZCYX → CYX
+        if ic_fields:
+            arr = _apply_ic_zcyx(arr, channel_names, ic_fields)
+        arr = arr.max(axis=0)  # ZCYX → CYX (after IC)
     elif arr.ndim != 3:
         raise ValueError(f"Unexpected ND2 shape after load: {arr.shape}")
 
@@ -76,12 +117,15 @@ def load_fov(nd2_path: str | Path) -> dict[str, np.ndarray]:
     return {name: arr[i] for i, name in enumerate(channel_names)}
 
 
-def load_fov_3d(nd2_path: str | Path) -> tuple[dict[str, np.ndarray], tuple[float, float, float]]:
+def load_fov_3d(
+    nd2_path: str | Path,
+    ic_fields: ICFields | None = None,
+) -> tuple[dict[str, np.ndarray], tuple[float, float, float]]:
     """Load one ND2 FOV WITHOUT max-projection: {channel_name: zyx_uint16}, (z,y,x) µm.
 
-    The 3D counterpart of load_fov, for coloc/detection that needs the z-stack. Voxel
-    size (µm) comes from ND2 metadata per FOV (this dataset uses adaptive Z, so z-spacing
-    is not constant across files). Single-Z FOVs come back with a length-1 z axis.
+    IC is applied to the ZCYX stack before channel splitting when ic_fields is provided.
+    Voxel size (µm) comes from ND2 metadata per FOV (adaptive Z, not constant across files).
+    Single-Z FOVs come back with a length-1 z axis.
     """
     try:
         import nd2
@@ -97,9 +141,11 @@ def load_fov_3d(nd2_path: str | Path) -> tuple[dict[str, np.ndarray], tuple[floa
         vx = f.voxel_size()  # VoxelSize(x, y, z) in µm
 
     if arr.ndim == 3:  # CYX -> add singleton Z
-        arr = arr[None]
+        arr = arr[np.newaxis]
     if arr.ndim != 4:
         raise ValueError(f"Unexpected ND2 shape after load: {arr.shape}")
+    if ic_fields:
+        arr = _apply_ic_zcyx(arr, channel_names, ic_fields)  # ZCYX in, ZCYX out
     arr = np.moveaxis(arr, 1, 0)  # ZCYX -> CZYX
     if arr.shape[0] != len(channel_names):
         raise ValueError(
