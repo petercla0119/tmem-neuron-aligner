@@ -56,6 +56,59 @@ def test_shape_mismatch_raises():
         nuclear_health_stats(masks, img)
 
 
+def test_segment_nuclei_cache(tmp_path):
+    """Cache hit returns saved masks without calling Cellpose."""
+    from unittest.mock import patch
+
+    import numpy as np
+
+    from tmem_align.analysis.if_spatial import segment_nuclei
+
+    fake_masks = np.array([[0, 1], [1, 0]], dtype=np.int32)
+    cache = tmp_path / "nuclei.npy"
+
+    # Prime the cache manually — no Cellpose call needed.
+    np.save(cache, fake_masks)
+
+    # Patch cellpose so any accidental call raises.
+    with patch.dict("sys.modules", {"cellpose": None, "cellpose.models": None}):
+        result = segment_nuclei(np.zeros((2, 2), dtype=np.float32), cache_path=cache)
+
+    np.testing.assert_array_equal(result, fake_masks)
+
+
+def test_segment_nuclei_cache_writes(tmp_path, monkeypatch):
+    """On cache miss, result is saved to disk."""
+    import numpy as np
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from tmem_align.analysis import if_spatial
+
+    fake_masks = np.array([[0, 2], [2, 0]], dtype=np.int32)
+
+    # Stub out CellposeModel so we never hit real Cellpose.
+    mock_model = MagicMock()
+    mock_model.eval.return_value = (fake_masks, None, None)
+    mock_cellpose = SimpleNamespace(models=SimpleNamespace(CellposeModel=lambda **kw: mock_model))
+    monkeypatch.setattr(if_spatial, "__builtins__", __builtins__)  # no-op; needed for scope
+    import builtins, importlib, sys
+    sys.modules["cellpose"] = mock_cellpose
+    sys.modules["cellpose.models"] = mock_cellpose.models
+
+    cache = tmp_path / "sub" / "nuclei.npy"
+    result = if_spatial.segment_nuclei(
+        np.zeros((2, 2), dtype=np.float32), gpu=False, cache_path=cache
+    )
+
+    assert cache.exists()
+    np.testing.assert_array_equal(np.load(cache), fake_masks)
+    np.testing.assert_array_equal(result, fake_masks)
+
+    del sys.modules["cellpose"]
+    del sys.modules["cellpose.models"]
+
+
 _REPORT_DIR = Path(__file__).parent.parent / "reports" / "nuclear_health_qc"
 
 
