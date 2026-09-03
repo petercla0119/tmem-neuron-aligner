@@ -9,13 +9,13 @@ from tmem_align.analysis.nuclear_health import nuclear_health_stats
 
 def test_flags_healthy_and_low_signal():
     masks = np.zeros((64, 64), dtype=np.int32)
-    masks[10:25, 10:25] = 1  # bright → healthy
+    masks[10:25, 10:25] = 1  # bright → healthy  (225 px > necrotic_area_max=20)
     masks[40:55, 40:55] = 2  # dim    → low_signal
     img = np.zeros((64, 64), dtype=np.float32)
     img[10:25, 10:25] = 1000.0
     img[40:55, 40:55] = 50.0
 
-    df = nuclear_health_stats(masks, img, min_mean_intensity=300.0, min_nucleus_area=10)
+    df = nuclear_health_stats(masks, img, min_mean_intensity=300.0, min_nucleus_area=10, necrotic_area_max=20)
 
     assert set(df["nucleus_label"]) == {1, 2}
     indexed = df.set_index("nucleus_label")
@@ -34,16 +34,29 @@ def test_flags_skewed():
     img[5:25, 5:25] = 500.0  # mean above min_mean_intensity
     img[5:7, 5:7] = 20000.0  # a few extreme outlier pixels → large positive skew
     df = nuclear_health_stats(
-        masks, img, min_mean_intensity=300.0, max_skewness=1.5, min_nucleus_area=10
+        masks, img, min_mean_intensity=300.0, max_skewness=1.5, min_nucleus_area=10, necrotic_area_max=20
     )
     assert df.iloc[0]["health_flag"] == "skewed"
 
 
+def test_necrotic_small_nucleus_flagged_as_skewed():
+    # Pyknotic/necrotic nucleus: small area (50-200 px range) → "skewed" regardless of intensity
+    masks = np.zeros((64, 64), dtype=np.int32)
+    masks[10:17, 10:17] = 1  # 49 px — above debris floor (10), below necrotic_area_max (100)
+    img = np.full((64, 64), 800.0, dtype=np.float32)  # bright + uniform, would be "healthy" by intensity alone
+
+    df = nuclear_health_stats(masks, img, min_nucleus_area=10, necrotic_area_max=100)
+
+    assert len(df) == 1
+    assert df.iloc[0]["health_flag"] == "skewed"
+    assert not df.iloc[0]["is_healthy"]
+
+
 def test_debris_dropped():
     masks = np.zeros((64, 64), dtype=np.int32)
-    masks[10:12, 10:12] = 1  # 4 px — below default min_nucleus_area
+    masks[10:12, 10:12] = 1  # 4 px — below min_nucleus_area=10, true debris
     img = np.full((64, 64), 1000.0, dtype=np.float32)
-    df = nuclear_health_stats(masks, img, min_nucleus_area=200)
+    df = nuclear_health_stats(masks, img, min_nucleus_area=10, necrotic_area_max=200)
     assert len(df) == 0
 
 

@@ -20,13 +20,16 @@ def nuclear_health_stats(
     *,
     min_mean_intensity: float = 300.0,
     max_skewness: float = 2.0,
-    min_nucleus_area: int = 200,
+    min_nucleus_area: int = 50,
+    necrotic_area_max: int = 200,
 ) -> pd.DataFrame:
     """Per-nucleus DAPI intensity stats and soft health flag.
 
     nuclei_masks: int32 label array from segment_nuclei() — 0 = background.
     dapi_yx: raw uint16 DAPI max-projection, same spatial shape as nuclei_masks.
-    Nuclei with area_px < min_nucleus_area are dropped (segmentation debris).
+    Nuclei with area_px < min_nucleus_area are dropped (true segmentation debris).
+    Nuclei with min_nucleus_area <= area_px < necrotic_area_max are classified as
+    "skewed" (pyknotic/necrotic — shrunken chromatin), not dropped.
     Returns one row per nucleus; health_flag ∈ {"healthy", "low_signal", "skewed"}.
     Thresholds are placeholders — tune empirically on a QC pilot well first.
     """
@@ -58,7 +61,7 @@ def nuclear_health_stats(
                 "std_intensity": float(values.std()),
                 "skewness": skew_val,
                 "health_flag": _classify_nucleus(
-                    mean_i, skew_val, min_mean_intensity, max_skewness
+                    mean_i, skew_val, prop.area, min_mean_intensity, max_skewness, necrotic_area_max
                 ),
             }
         )
@@ -74,10 +77,17 @@ def nuclear_health_stats(
 def _classify_nucleus(
     mean_intensity: float,
     skewness: float,
+    area: int,
     min_mean_intensity: float,
     max_skewness: float,
+    necrotic_area_max: int,
 ) -> str:
-    # low_signal checked first: dim nucleus is most actionable (dead/dying cell)
+    # Small nuclei first: pyknosis (chromatin condensation) shrinks the nucleus.
+    # Catching by size is more robust than skewness alone since condensed chromatin
+    # can appear either uniform-bright or splotchy depending on the stage.
+    if area < necrotic_area_max:
+        return "skewed"
+    # low_signal checked before skewness: dim nucleus is most actionable (dead/dying cell)
     if mean_intensity < min_mean_intensity:
         return "low_signal"
     if abs(skewness) > max_skewness:
