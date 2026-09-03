@@ -187,6 +187,7 @@ def segment_nuclei(
     diameter: float | None = _NUCLEUS_DIAMETER_PX,
     model_name: str = "cpsam",
     gpu: bool = True,
+    flow_threshold: float = 0.8,
     cache_path: str | Path | None = None,
 ) -> np.ndarray:
     """Return integer label array (0 = background) from Cellpose-SAM nuclei model.
@@ -194,6 +195,10 @@ def segment_nuclei(
     Defaults to cpsam (SAM2 backbone, best accuracy) with gpu=True (uses MPS on
     Apple Silicon). Falls back gracefully if MPS is unavailable.
     Requires cellpose: pip install cellpose
+
+    flow_threshold: Cellpose default is 0.4; lowering to 0.1 recovers condensed/
+    necrotic nuclei whose flow fields are noisier. Tune upward if you get false
+    positives in background.
 
     Pass cache_path (a .npy file) to skip Cellpose on subsequent calls — loads
     from disk if the file exists, otherwise runs Cellpose and saves the result.
@@ -210,7 +215,7 @@ def segment_nuclei(
 
     model = models.CellposeModel(gpu=gpu, pretrained_model=model_name)
     img = np.asarray(dapi_yx, dtype=np.float32)
-    masks, _, _ = model.eval(img, diameter=diameter, channels=[0, 0])
+    masks, _, _ = model.eval(img, diameter=diameter, channels=[0, 0], flow_threshold=flow_threshold)
     result = masks.astype(np.int32)
 
     if cache_path is not None:
