@@ -187,13 +187,22 @@ def segment_nuclei(
     diameter: float | None = _NUCLEUS_DIAMETER_PX,
     model_name: str = "cpsam",
     gpu: bool = True,
+    cache_path: str | Path | None = None,
 ) -> np.ndarray:
     """Return integer label array (0 = background) from Cellpose-SAM nuclei model.
 
     Defaults to cpsam (SAM2 backbone, best accuracy) with gpu=True (uses MPS on
     Apple Silicon). Falls back gracefully if MPS is unavailable.
     Requires cellpose: pip install cellpose
+
+    Pass cache_path (a .npy file) to skip Cellpose on subsequent calls — loads
+    from disk if the file exists, otherwise runs Cellpose and saves the result.
     """
+    if cache_path is not None:
+        cache = Path(cache_path)
+        if cache.exists():
+            return np.load(cache).astype(np.int32)
+
     try:
         from cellpose import models
     except ImportError as exc:
@@ -202,7 +211,13 @@ def segment_nuclei(
     model = models.CellposeModel(gpu=gpu, pretrained_model=model_name)
     img = np.asarray(dapi_yx, dtype=np.float32)
     masks, _, _ = model.eval(img, diameter=diameter, channels=[0, 0])
-    return masks.astype(np.int32)
+    result = masks.astype(np.int32)
+
+    if cache_path is not None:
+        cache = Path(cache_path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        np.save(cache, result)
+    return result
 
 
 # ~12 µm max soma radius / 0.108 µm per px ≈ 110 px. Sweep (reports/if_segmentation
@@ -285,6 +300,7 @@ def segment_cell_bodies(
     map2_yx: np.ndarray,
     model_path: str | Path = _CELLBODY_MODEL,
     gpu: bool = True,
+    cache_path: str | Path | None = None,
 ) -> np.ndarray:
     """Segment MAP2 cell bodies with the HITL fine-tuned cpsam model.
 
@@ -302,8 +318,16 @@ def segment_cell_bodies(
     prove boundary-sensitive, the fix is ~6-9 more corrected FOVs + retrain (the
     map2_cellbody_cpsam model retrains in ~5 min).
 
+    Pass cache_path (a .npy file) to skip Cellpose on subsequent calls — loads
+    from disk if the file exists, otherwise runs Cellpose and saves the result.
+
     Returns an int32 label array (0 = background).
     """
+    if cache_path is not None:
+        cache = Path(cache_path)
+        if cache.exists():
+            return np.load(cache).astype(np.int32)
+
     try:
         from cellpose import models
     except ImportError as exc:
@@ -319,4 +343,10 @@ def segment_cell_bodies(
     model = models.CellposeModel(gpu=gpu, pretrained_model=str(model_path))
     img_u8 = (apply_display_lut(map2_yx, CH_MAP2) * 255).astype(np.uint8)
     masks, _, _ = model.eval(img_u8)
-    return masks.astype(np.int32)
+    result = masks.astype(np.int32)
+
+    if cache_path is not None:
+        cache = Path(cache_path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        np.save(cache, result)
+    return result
