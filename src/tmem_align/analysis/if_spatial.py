@@ -36,7 +36,7 @@ DISPLAY_LUT = {
 # IC / corrected-domain policy (validated 2026-09-02, scripts/validate_ic_flatfield.py):
 #   - The RELATIVE puncta path (analysis/mcherry_metrics.py: percentile bg + DoG + robust-MAD)
 #     is invariant to the IC transform to ~1st order (flat-only Δlocal-contrast <0.001) — nothing to re-derive.
-#   - BUT the coloc path (analysis/if_coloc.py) uses ABSOLUTE-DN thresholds
+#   - BUT the coloc path (analysis/if_coloc.py, on feat/if-lamp1-refinements) uses ABSOLUTE-DN thresholds
 #     (tmem 1763.5, lamp1 3765) calibrated on RAW. Those DO depend on the DN scale: run coloc detection on
 #     RAW (don't pass ic_fields to run_if_coloc), or re-run the surveys to re-derive them on the corrected domain.
 #   - These fixed display LUTs are calibrated on RAW DN. They stay valid for the FLAT-ONLY corrected domain
