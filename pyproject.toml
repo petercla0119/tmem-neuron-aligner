@@ -29,6 +29,7 @@ dependencies = [
 nd2 = ["nd2>=0.10"]
 bioformats = ["bioio>=1.1", "bioio-nd2>=1.0"]
 viewer = ["napari[all]>=0.4.19"]
+seg = ["cellpose>=3.0"]
 dev = ["pytest>=7.4", "ruff>=0.5", "jupyterlab>=4.0", "ipykernel>=6.0"]
 
 [project.scripts]

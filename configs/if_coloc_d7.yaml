@@ -1,0 +1,34 @@
+# Full d7 run of the 3D TMEM-LAMP1 coloc pipeline (scripts/run_if_coloc.py).
+# Calibrated absolute DN thresholds (see comments); all 72 d7 FOVs.
+data_root: /Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821
+timepoint: d7
+output_dir: reports/if_segmentation_pilot
+
+# Reuse cached MAP2 cell-body masks (no cellpose model needed at run time).
+mask_cache_dir: /Users/pmihack/claire/tmem_2026/tmem-if-features/reports/if_segmentation_pilot/fov_cache
+
+threshold_um: 0.5          # "within" distance for the enrichment fraction
+n_null_iterations: 200
+
+# TMEM (561) detection: absolute DN, calibrated against the KO null via
+# scripts/survey_tmem_dn.py (KO carries no real cleaved-TMEM => its detection
+# must floor out). tmem_threshold overrides tmem_top_percentile when set.
+tmem_top_percentile: 99.9  # fallback only; a relative top-0.1% always fires, even on noise
+# 1763.5 DN = median of KO per-FOV intra-cell p99.99 (survey_tmem_dn.py, 72 d7 FOVs).
+# At this DN, KO floors to 0.31 puncta/cell while KI keeps 2.56 (8x); 446 DN (p99.9)
+# did NOT floor KO (3.64/cell). NB: Control ~= KO (0.28 vs 0.31) -- the PLD3-only line
+# has no detectable cleaved-TMEM, so the real coloc contrast is KI vs KO, not Control.
+tmem_threshold: 1763.5
+
+# LAMP1 (640) lysosome volume: fixed DN reused from survey_lamp1_otsu.py
+# (median Otsu of Control+KI d7 FOVs on p50-bg-subtracted LAMP1 = 3765 DN).
+# 3765 was derived on the 2D MIP; coloc thresholds the 3D stack. Transfer confirmed:
+# 3D bg is a stable ~123-130 DN, and at 3765 the in-cell LAMP1 volume fraction is a
+# sane 0.2-5.6% across conditions, avoiding the per-FOV Otsu drift (which dropped one
+# Control FOV to 0.0% lysosomes).
+lamp1_bg_percentile: 50.0
+lamp1_threshold: 3765.0
+
+min_puncta_size_vox: 2
+max_fovs: null           # full run (all FOVs)
+seed: 0
