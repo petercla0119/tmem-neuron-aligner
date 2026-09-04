@@ -9,9 +9,15 @@ detection from per-condition brightness to test whether the KO effect is real.
 
 Outputs: reports/if_segmentation_pilot/d7_percell_fixedthr.csv
 Log:     reports/if_segmentation_pilot/d7_fixedthr_run.log (stdout)
+
+Mask export (optional):
+    python run_d7_fixedthr.py --masks-dir data/masks/d7
+    Writes nuclei/cells/lysosomes int32 TIFFs per FOV, napari Labels-ready.
+    Layout: {masks_dir}/{timepoint}/{condition}/{stem}__{kind}.tif
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -29,12 +35,23 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # See d7_lamp1_otsu_survey.csv — Control median 3552, KI median 4223, pooled median 3765
 FIXED_THR = 3765.0
 
+parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument(
+    "--masks-dir",
+    type=Path,
+    default=None,
+    help="Write napari-ready label TIFFs here (nuclei/cells/lysosomes per FOV). Skipped if not set.",
+)
+args = parser.parse_args()
+
 nd2_paths = sorted(DATA_DIR.rglob("*.nd2"))
 print(f"Found {len(nd2_paths)} ND2 files", flush=True)
 print(f"Fixed lyso_threshold = {FIXED_THR} DN (median Control+KI Otsu on p50-bg image)", flush=True)
+if args.masks_dir:
+    print(f"Mask export → {args.masks_dir}", flush=True)
 print(f"Start: {time.strftime('%H:%M:%S')}", flush=True)
 
-df = build_table(nd2_paths, lyso_threshold=FIXED_THR)
+df = build_table(nd2_paths, lyso_threshold=FIXED_THR, masks_dir=args.masks_dir)
 
 out_csv = OUT_DIR / "d7_percell_fixedthr.csv"
 df.to_csv(out_csv, index=False)
