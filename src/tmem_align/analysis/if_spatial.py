@@ -184,10 +184,11 @@ def load_fov_3d(
 
 def segment_nuclei(
     dapi_yx: np.ndarray,
-    diameter: float | None = _NUCLEUS_DIAMETER_PX,
+    diameter: float | None = None,
     model_name: str = "cpsam",
     gpu: bool = True,
-    flow_threshold: float = 0.8,
+    flow_threshold: float = 0.4,
+    cellprob_threshold: float = 1.0,
     cache_path: str | Path | None = None,
 ) -> np.ndarray:
     """Return integer label array (0 = background) from Cellpose-SAM nuclei model.
@@ -196,9 +197,24 @@ def segment_nuclei(
     Apple Silicon). Falls back gracefully if MPS is unavailable.
     Requires cellpose: pip install cellpose
 
-    flow_threshold: Cellpose default is 0.4; lowering to 0.1 recovers condensed/
-    necrotic nuclei whose flow fields are noisier. Tune upward if you get false
-    positives in background.
+    Endorsed defaults (tuned on d7/d14/d28 cleaved-TMEM FOVs, 2026-09-03):
+      diameter=None, flow_threshold=0.4, cellprob_threshold=+1.0
+
+    diameter: None = auto (Cellpose estimates from the image). A fixed value (e.g.
+    111 px) rescales all objects to that size before the network runs; blebs and
+    pyknotic nuclei smaller than the fixed prior are shrunk below the detection floor
+    and silently missed. Use None for max recall; tune cellprob_threshold for precision.
+
+    flow_threshold: maximum allowed flow-field error for a mask to survive. HIGHER =
+    more permissive = more detections (Cellpose convention, opposite of a p-value).
+    Default 0.4 (Cellpose default). Do NOT raise this when diameter=None — at 0.8
+    with auto-diameter it floods the background with garbage-flow masks (804 vs 54
+    objects on a control FOV). Use cellprob_threshold instead to adjust recall.
+
+    cellprob_threshold: detection-probability floor. +1.0 cuts background debris
+    while preserving real dim/dying nuclei (which are flagged downstream by
+    nuclear_health_stats). Note: object count is non-monotonic — sweeping lower does
+    not guarantee more detections. Tune on a QC well; see nuclear_health_qc.ipynb.
 
     Pass cache_path (a .npy file) to skip Cellpose on subsequent calls — loads
     from disk if the file exists, otherwise runs Cellpose and saves the result.
@@ -215,7 +231,13 @@ def segment_nuclei(
 
     model = models.CellposeModel(gpu=gpu, pretrained_model=model_name)
     img = np.asarray(dapi_yx, dtype=np.float32)
-    masks, _, _ = model.eval(img, diameter=diameter, channels=[0, 0], flow_threshold=flow_threshold)
+    masks, _, _ = model.eval(
+        img,
+        diameter=diameter,
+        channels=[0, 0],
+        flow_threshold=flow_threshold,
+        cellprob_threshold=cellprob_threshold,
+    )
     result = masks.astype(np.int32)
 
     if cache_path is not None:

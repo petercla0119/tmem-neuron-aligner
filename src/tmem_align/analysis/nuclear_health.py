@@ -2,13 +2,17 @@
 
 Per-nucleus intensity statistics + soft health flag from a Cellpose label mask
 and a raw DAPI max-projection. Intended as a pre-filter step in the fixed-IF
-pipeline: segment_nuclei() → nuclear_health_stats() → filter is_healthy → downstream.
+pipeline: segment_nuclei() → nuclear_health_stats() → apply_health_filter() → downstream.
+
+apply_health_filter() gives the two segmentation options: "healthy_only" (viable
+nuclei) or "all" (every detected nucleus kept and flagged, so dead/dying regions
+can be attributed rather than dropped).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -72,6 +76,42 @@ def nuclear_health_stats(
     else:
         df["is_healthy"] = pd.Series(dtype=bool)
     return df
+
+
+def apply_health_filter(
+    nuclei_masks: np.ndarray,
+    stats: pd.DataFrame,
+    *,
+    mode: Literal["healthy_only", "all"] = "healthy_only",
+) -> np.ndarray:
+    """Return a label mask reflecting the chosen segmentation mode.
+
+    Two options for what nuclear segmentation hands downstream:
+
+    mode="healthy_only": keep only nuclei flagged is_healthy; low_signal/skewed
+      (dead/dying/pyknotic) nuclei → background. Use when you only want to
+      quantify signal from viable cells.
+
+    mode="all": keep every detected nucleus. Dead/dying nuclei stay labeled and
+      carry their health_flag in `stats`, so downstream can attribute other-channel
+      signal in that region to a dead/dying cell (a skewed DAPI distribution flags
+      it) and exclude it from biological quantification — rather than silently
+      dropping the label and mistaking the leftover signal for a healthy cell's.
+
+    Both modes drop sub-min_nucleus_area debris (labels absent from `stats`), which
+    is segmentation noise, not a nucleus.
+    """
+    masks = np.asarray(nuclei_masks, dtype=np.int32)
+    if mode == "healthy_only":
+        keep = stats.loc[stats["is_healthy"], "nucleus_label"]
+    elif mode == "all":
+        keep = stats["nucleus_label"]
+    else:
+        raise ValueError(f"mode must be 'healthy_only' or 'all', got {mode!r}")
+
+    out = masks.copy()
+    out[~np.isin(masks, keep.to_numpy())] = 0
+    return out
 
 
 def _classify_nucleus(

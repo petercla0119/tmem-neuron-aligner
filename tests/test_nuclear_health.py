@@ -60,6 +60,31 @@ def test_debris_dropped():
     assert len(df) == 0
 
 
+def test_apply_health_filter_modes():
+    from tmem_align.analysis.nuclear_health import apply_health_filter
+
+    masks = np.zeros((64, 64), dtype=np.int32)
+    masks[10:25, 10:25] = 1  # bright → healthy
+    masks[40:55, 40:55] = 2  # dim    → low_signal
+    masks[0:1, 0:1] = 3  # 1 px debris → dropped from stats
+    img = np.zeros((64, 64), dtype=np.float32)
+    img[10:25, 10:25] = 1000.0
+    img[40:55, 40:55] = 50.0
+    img[0:1, 0:1] = 1000.0
+    df = nuclear_health_stats(masks, img, min_mean_intensity=300.0, min_nucleus_area=10, necrotic_area_max=20)
+
+    healthy = apply_health_filter(masks, df, mode="healthy_only")
+    assert set(np.unique(healthy)) == {0, 1}  # only healthy nucleus survives
+
+    everything = apply_health_filter(masks, df, mode="all")
+    assert set(np.unique(everything)) == {0, 1, 2}  # dead/dying kept, debris dropped
+
+    import pytest
+
+    with pytest.raises(ValueError, match="mode"):
+        apply_health_filter(masks, df, mode="bogus")
+
+
 def test_shape_mismatch_raises():
     import pytest
 
