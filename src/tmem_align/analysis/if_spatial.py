@@ -184,11 +184,11 @@ def load_fov_3d(
 
 def segment_nuclei(
     dapi_yx: np.ndarray,
-    diameter: float | None = None,
+    diameter: float | None = 25.0,
     model_name: str = "cpsam",
     gpu: bool = True,
     flow_threshold: float = 0.4,
-    cellprob_threshold: float = 1.0,
+    cellprob_threshold: float = 0.0,
     cache_path: str | Path | None = None,
 ) -> np.ndarray:
     """Return integer label array (0 = background) from Cellpose-SAM nuclei model.
@@ -197,24 +197,29 @@ def segment_nuclei(
     Apple Silicon). Falls back gracefully if MPS is unavailable.
     Requires cellpose: pip install cellpose
 
-    Endorsed defaults (tuned on d7/d14/d28 cleaved-TMEM FOVs, 2026-09-03):
-      diameter=None, flow_threshold=0.4, cellprob_threshold=+1.0
+    Endorsed defaults (re-tuned on d7/d14/d28 cleaved-TMEM FOVs, 2026-09-08; see
+    03_contexts/2026_tmem/runs/2026-09-08-nuclear-health-qc-tuning.md):
+      diameter=25, flow_threshold=0.4, cellprob_threshold=0.0
 
-    diameter: None = auto (Cellpose estimates from the image). A fixed value (e.g.
-    111 px) rescales all objects to that size before the network runs; blebs and
-    pyknotic nuclei smaller than the fixed prior are shrunk below the detection floor
-    and silently missed. Use None for max recall; tune cellprob_threshold for precision.
+    diameter: 25 px. SUPERSEDES the earlier diameter=None default. On sparse fields
+    with mixed nucleus sizes, None (auto) picks one global scale and rescales small
+    real nuclei below the detection floor — on d28 F20 it recovered only ~50% of real
+    nuclei vs ~80% at diameter=25, and 25 is equal-or-better on the dense d7/d14 wells
+    too. A single diameter still can't catch the largest (~75-113 px) nuclei; those
+    few are a known ceiling (needs HITL, not tuning). A two-pass small+large union was
+    tested and rejected (0 extra real nuclei, only junk splits).
 
     flow_threshold: maximum allowed flow-field error for a mask to survive. HIGHER =
     more permissive = more detections (Cellpose convention, opposite of a p-value).
-    Default 0.4 (Cellpose default). Do NOT raise this when diameter=None — at 0.8
-    with auto-diameter it floods the background with garbage-flow masks (804 vs 54
-    objects on a control FOV). Use cellprob_threshold instead to adjust recall.
+    Default 0.4 (Cellpose default). Do NOT raise this with auto-diameter — at 0.8 it
+    floods the background with garbage-flow masks (804 vs 54 objects on a control FOV).
 
-    cellprob_threshold: detection-probability floor. +1.0 cuts background debris
-    while preserving real dim/dying nuclei (which are flagged downstream by
-    nuclear_health_stats). Note: object count is non-monotonic — sweeping lower does
-    not guarantee more detections. Tune on a QC well; see nuclear_health_qc.ipynb.
+    cellprob_threshold: detection-probability floor. Lowered +1.0 -> 0.0: precision is
+    now handled downstream by nuclear_health_stats' background-contrast filter
+    (min_foreground_frac), which cleanly drops the background hallucinations cellprob
+    was being kept high to suppress — so cellprob can be less conservative and recover
+    more real nuclei. Object count is non-monotonic (0.0 recovered more than -1/-2 on
+    d28 F20); tune on a QC well. See nuclear_health_qc.ipynb.
 
     Pass cache_path (a .npy file) to skip Cellpose on subsequent calls — loads
     from disk if the file exists, otherwise runs Cellpose and saves the result.

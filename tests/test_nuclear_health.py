@@ -43,7 +43,8 @@ def test_necrotic_small_nucleus_flagged_as_skewed():
     # Pyknotic/necrotic nucleus: small area (50-200 px range) → "skewed" regardless of intensity
     masks = np.zeros((64, 64), dtype=np.int32)
     masks[10:17, 10:17] = 1  # 49 px — above debris floor (10), below necrotic_area_max (100)
-    img = np.full((64, 64), 800.0, dtype=np.float32)  # bright + uniform, would be "healthy" by intensity alone
+    img = np.zeros((64, 64), dtype=np.float32)
+    img[10:17, 10:17] = 800.0  # bright nucleus on dark field, would be "healthy" by intensity alone
 
     df = nuclear_health_stats(masks, img, min_nucleus_area=10, necrotic_area_max=100)
 
@@ -58,6 +59,21 @@ def test_debris_dropped():
     img = np.full((64, 64), 1000.0, dtype=np.float32)
     df = nuclear_health_stats(masks, img, min_nucleus_area=10, necrotic_area_max=200)
     assert len(df) == 0
+
+
+def test_background_false_positive_dropped():
+    # Cellpose-SAM hallucinates a large blob on a dark field whose intensity sits AT
+    # background. It clears the area floor but has no contrast → must be dropped.
+    rng = np.random.default_rng(0)
+    img = rng.normal(136.0, 18.0, size=(128, 128)).astype(np.float32)  # noisy field bg
+    masks = np.zeros((128, 128), dtype=np.int32)
+    masks[10:40, 10:40] = 1  # 900 px blob left at background intensity → false positive
+    masks[70:100, 70:100] = 2  # 900 px real nucleus, well above background
+    img[70:100, 70:100] = 1000.0
+
+    df = nuclear_health_stats(masks, img, min_nucleus_area=50, necrotic_area_max=200)
+
+    assert set(df["nucleus_label"]) == {2}  # background blob (label 1) dropped
 
 
 def test_apply_health_filter_modes():

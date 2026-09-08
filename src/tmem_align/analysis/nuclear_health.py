@@ -26,12 +26,20 @@ def nuclear_health_stats(
     max_skewness: float = 2.0,
     min_nucleus_area: int = 50,
     necrotic_area_max: int = 200,
+    bg_sigma_mult: float = 3.0,
+    min_foreground_frac: float = 0.5,
 ) -> pd.DataFrame:
     """Per-nucleus DAPI intensity stats and soft health flag.
 
     nuclei_masks: int32 label array from segment_nuclei() — 0 = background.
     dapi_yx: raw uint16 DAPI max-projection, same spatial shape as nuclei_masks.
     Nuclei with area_px < min_nucleus_area are dropped (true segmentation debris).
+    Nuclei whose fraction of pixels brighter than background (field median + robust
+    σ × bg_sigma_mult) is below min_foreground_frac are also dropped: Cellpose-SAM
+    hallucinates large blobs on dark fields whose intensity sits AT background — not
+    nuclei at all. This per-field contrast test cleanly separates them (real nuclei
+    are >0.9 above-background, false positives <0.4) where the exposure-dependent
+    min_mean_intensity floor and the non-monotonic cellprob knob both cannot.
     Nuclei with min_nucleus_area <= area_px < necrotic_area_max are classified as
     "skewed" (pyknotic/necrotic — shrunken chromatin), not dropped.
     Returns one row per nucleus; health_flag ∈ {"healthy", "low_signal", "skewed"}.
@@ -47,11 +55,23 @@ def nuclear_health_stats(
             f"nuclei_masks shape {masks.shape} does not match dapi_yx shape {img.shape}"
         )
 
+    # Per-field background from non-nucleus pixels; robust σ via MAD. A real nucleus
+    # is mostly brighter than bg + bg_sigma_mult·σ; a background false positive is not.
+    bg_pixels = img[masks == 0]
+    if bg_pixels.size:
+        bg_median = float(np.median(bg_pixels))
+        bg_sigma = float(np.median(np.abs(bg_pixels - bg_median)) * 1.4826)
+    else:
+        bg_median = bg_sigma = 0.0
+    bg_ceiling = bg_median + bg_sigma_mult * bg_sigma
+
     rows: list[dict[str, Any]] = []
     for prop in regionprops(masks, intensity_image=img):
         if prop.area < min_nucleus_area:
             continue
         values = prop.image_intensity[prop.image]
+        if float(np.mean(values > bg_ceiling)) < min_foreground_frac:
+            continue  # background false positive, not a nucleus
         mean_i = float(values.mean())
         skew_val = float(skew(values))
         rows.append(
