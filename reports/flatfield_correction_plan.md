@@ -15,6 +15,17 @@ All six previously-open questions are decided. Brief justifications below; these
 
 1. **Field grouping — POOLED: one 2D flat-field per named channel across d7+d14+d28.** Laser power, HDR gain, and exposures are identical across the three timepoints (given), so the illumination field is physically the same; pooling maximizes the sample feeding the pixelwise median → more robust field, one artifact to reason about. Keep the per-timepoint path (`calculate_ic_fields_by_timepoint`, `preprocess.py:249`) available for the A/B sanity check only.
 
+   Acquisition settings extracted from raw ND2 metadata — identical across d7, d14, d28:
+
+   | Channel | Laser line | Power | Exposure | Conversion gain |
+   |---------|-----------|-------|----------|-----------------|
+   | 488nm (MAP2) | LUN-F line 2 | 100% | 300 ms | HDR |
+   | 640nm (LAMP1) | LUN-F line 4 | 100% | 900 ms | HDR |
+   | 561nm (cl-TMEM) | LUN-F line 3 | 65% | 900 ms | HDR |
+   | 405nm (DAPI) | LUN-F line 1 | 83% | 500 ms | HDR |
+
+   Verified from `text_info.description` in one KI FOV per timepoint (`C20_F1.nd2`). Bit-for-bit identical settings across all timepoints.
+
 2. **Quantification runs on the corrected 3D ZCYX stack.** Correction is applied to the full z-stack and quantify/register consume the corrected 3D data — no pre-IC max-projection. Remove/bypass the `standardize_to_cyx` Z max-projection (`run_260213_longitudinal_pilot.py:301`) for this path; any max-projection for display/QC happens *after* correction.
 
 3. **Darkfield ON by default, scalar per channel.** Dark-subtract before flat-divide (`corrected = (raw − dark) / flat`); skipping it lets the ~100 ADU camera bias get amplified in dim corners. Scalar (not spatial) because the back-illuminated sCMOS (Prime BSI) offset is ~uniform and no dark frames exist to justify a per-pixel map. Estimate via the existing 1st-percentile-of-minima path (`preprocess.py:451`) — an estimate, not a measurement.
