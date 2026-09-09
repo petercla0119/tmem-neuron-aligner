@@ -179,6 +179,27 @@ def is_d17_file(path: str | Path) -> bool:
     return bool(_D17.search(Path(path).name))
 
 
+def align_z_planes(zyx: np.ndarray) -> np.ndarray:
+    """Correct lateral (XY) drift between z-planes by registering each to z[0].
+
+    Uses phase cross-correlation at 10× sub-pixel precision. Pass as an optional
+    step before RL deconvolution: deconv assumes a stationary PSF, so any XY
+    drift between planes violates that and causes a single punctum to appear at
+    two positions in the MIP.
+    """
+    from scipy.ndimage import shift as ndshift
+    from skimage.registration import phase_cross_correlation
+
+    ref = zyx[0].astype(np.float32)
+    out = np.empty_like(zyx)
+    out[0] = zyx[0]
+    for z in range(1, zyx.shape[0]):
+        plane = zyx[z].astype(np.float32)
+        s, _, _ = phase_cross_correlation(ref, plane, upsample_factor=10)
+        out[z] = np.clip(np.rint(ndshift(plane, s)), 0, 65535).astype(zyx.dtype)
+    return out
+
+
 def deconvolve_nd2_file(
     nd2_path: str | Path,
     out_path: str | Path,
@@ -186,6 +207,7 @@ def deconvolve_nd2_file(
     channels: tuple[int, ...] | None = None,
     overwrite: bool = False,
     ic_fields: dict[int, np.ndarray] | None = None,
+    align_z: bool = False,
 ) -> Path:
     """Deconvolve the requested channels of one ND2 file -> OME-TIFF (CZYX).
 
@@ -217,6 +239,8 @@ def deconvolve_nd2_file(
             zyx = np.take(arr, ch_map[nm], axis=c_axis)  # (Z, Y, X)
             if ic_fields and nm in ic_fields:
                 zyx = apply_ic_field(zyx, ic_fields[nm])
+            if align_z:
+                zyx = align_z_planes(zyx)
             psf = compute_psf(nm, config)
             out_channels.append(deconvolve_stack(zyx, psf, config.n_iter, config.filter_epsilon))
 
@@ -240,9 +264,9 @@ def _init_worker(ic_fields: dict[int, np.ndarray] | None) -> None:
 
 
 def _worker(args):
-    nd2_path, out_path, config, channels, overwrite = args
+    nd2_path, out_path, config, channels, overwrite, align_z = args
     try:
-        deconvolve_nd2_file(nd2_path, out_path, config, channels, overwrite, _IC_FIELDS)
+        deconvolve_nd2_file(nd2_path, out_path, config, channels, overwrite, _IC_FIELDS, align_z)
         return (str(nd2_path), "ok", None)
     except Exception as exc:  # keep one bad file from killing the batch
         return (str(nd2_path), "error", str(exc))
@@ -263,6 +287,7 @@ def deconvolve_batch(
     ic_fields: dict[int, np.ndarray] | None = None,
     estimate_ic: bool = True,
     ic_sample_n: int = 30,
+    align_z: bool = False,
 ) -> list[tuple[str, str, str | None]]:
     """Deconvolve every ND2 under ``input_dir`` -> ``out_dir/<stem>.ome.tif``.
 
@@ -293,7 +318,7 @@ def deconvolve_batch(
         ic_fields = estimate_ic_fields(files, channels, ic_sample_n)
 
     jobs = [
-        (f, out_dir / f"{f.stem}.ome.tif", config, channels, overwrite)
+        (f, out_dir / f"{f.stem}.ome.tif", config, channels, overwrite, align_z)
         for f in files
     ]
 

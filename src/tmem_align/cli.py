@@ -152,6 +152,7 @@ def compute_ic_fields_command(
 @click.option("--overwrite", is_flag=True, default=False)
 @click.option("--no-ic", "skip_ic", is_flag=True, default=False, help="Skip illumination correction (not recommended).")
 @click.option("--ic-sample-n", type=int, default=30, show_default=True, help="Number of ND2 files to sample for IC field estimation.")
+@click.option("--align-z", is_flag=True, default=False, help="Correct lateral XY drift between z-planes before deconvolution.")
 def deconvolve_command(
     input_dir: str,
     output: str | None,
@@ -161,6 +162,7 @@ def deconvolve_command(
     overwrite: bool,
     skip_ic: bool,
     ic_sample_n: int,
+    align_z: bool,
 ) -> None:
     """Richardson-Lucy deconvolve all ND2 files under INPUT_DIR -> OUTPUT/*.ome.tif.
 
@@ -181,6 +183,7 @@ def deconvolve_command(
             n_workers=workers,
             estimate_ic=not skip_ic,
             ic_sample_n=ic_sample_n,
+            align_z=align_z,
         )
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
