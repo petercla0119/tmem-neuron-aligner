@@ -12,8 +12,13 @@ scratch, seed the Cellpose GUI with masks we already have from
 Open the output folder in the GUI (`python -m cellpose`) and each image loads
 with its starter masks ready to correct.
 
-Run:  python notebooks/export_hitl_seed_masks.py
+Add d14/d28 to the training set (avoid time-point bias) by seeding those days;
+existing corrected _seg.npy are never overwritten (guarded), so re-running is safe.
+
+Run:  python notebooks/export_hitl_seed_masks.py            # d14,d28
+      python notebooks/export_hitl_seed_masks.py d7,d14,d28  # explicit days
 """
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -29,13 +34,15 @@ from tmem_align.analysis.if_spatial import (
     segment_nuclei,
 )
 
-DATA = Path("/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821/d7")
+DATA = Path("/Users/pmihack/claire/tmem_2026/data/cleaved_tmem_pld3_260821")
 # Training data is derived image data → keep it out of git, next to the raw data.
-OUT = DATA.parent / "hitl_map2_train"
+OUT = DATA / "hitl_map2_train"
 OUT.mkdir(parents=True, exist_ok=True)
 
+# d7 is already annotated; default to expanding into the later timepoints.
+DAYS = sys.argv[1].split(",") if len(sys.argv) > 1 else ["d14", "d28"]
 CONDITIONS = ["TMEM_KO", "Z59_PLD_Control", "Z60_PLD_TMEMki"]
-N_PER_CONDITION = 4  # 4 x 3 = 12 FOVs; correct these -> ~100-200 ROI target
+N_PER_CONDITION = 4  # 4 x 3conds x 2days = 24 FOVs; correct these -> more ROI
 
 
 def pick_fovs(cond_dir: Path, n: int) -> list[Path]:
@@ -66,19 +73,24 @@ def write_seg(stem: str, map2_u8: np.ndarray, masks: np.ndarray) -> None:
 
 
 def main() -> None:
-    total = 0
-    for cond in CONDITIONS:
-        for nd2 in pick_fovs(DATA / cond, N_PER_CONDITION):
-            chs = load_fov(nd2)
-            nuclei = segment_nuclei(chs[CH_DAPI])
-            map2 = chs[CH_MAP2].astype(np.float32)
-            bodies = expand_to_cell_bodies(nuclei, map2)
-            map2_u8 = (apply_display_lut(map2, CH_MAP2) * 255).astype(np.uint8)
-            stem = f"{cond}__{nd2.stem}"
-            write_seg(stem, map2_u8, bodies)
-            print(f"{stem}: {int(bodies.max())} starter ROI")
-            total += 1
-    print(f"\nWrote {total} FOVs to {OUT}")
+    total = skipped = 0
+    for day in DAYS:
+        for cond in CONDITIONS:
+            for nd2 in pick_fovs(DATA / day / cond, N_PER_CONDITION):
+                stem = f"{cond}__{nd2.stem}"
+                if (OUT / f"{stem}_seg.npy").exists():
+                    print(f"{stem}: exists, skipping (protects corrected masks)")
+                    skipped += 1
+                    continue
+                chs = load_fov(nd2)
+                nuclei = segment_nuclei(chs[CH_DAPI])
+                map2 = chs[CH_MAP2].astype(np.float32)
+                bodies = expand_to_cell_bodies(nuclei, map2)
+                map2_u8 = (apply_display_lut(map2, CH_MAP2) * 255).astype(np.uint8)
+                write_seg(stem, map2_u8, bodies)
+                print(f"{stem}: {int(bodies.max())} starter ROI")
+                total += 1
+    print(f"\nWrote {total} new FOVs ({skipped} skipped) to {OUT}")
     print(f"Next: python -m cellpose  ->  File > Load folder  ->  {OUT}")
 
 
