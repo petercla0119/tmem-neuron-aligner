@@ -1,0 +1,38 @@
+/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/.venv/lib/python3.13/site-packages/cellpose/dynamics.py:541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /Users/runner/work/pytorch/pytorch/aten/src/ATen/Context.cpp:823.)
+  coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+[full] 72 FOV(s)
+
+columns: ['cell_id', 'cell_area_px', 'n_lysosomes', 'lyso_area_frac', 'lyso_mean_size_um2', 'lamp1_mean', 'lamp1_integrated', 'perinuclear_index', 'tmem_manders_m1', 'tmem_pearson', 'qc_pass', 'qc_reason', 'condition', 'well', 'fov', 'timepoint', 'plate', 'file_path', 'n_z_slices']
+cells total: 1380 | per condition:
+condition
+Control    452
+KI         395
+KO         533
+dtype: int64
+
+n_z_slices seen: [6, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+wrote reports/if_segmentation_pilot/d7_percell_full.csv
+
+=== qc_summary ===
+condition  n_cells  n_pass  pct_excluded  abnormal_nucleus  border  size_outlier
+  Control      452     434      3.982301                 1      11             6
+       KI      395     375      5.063291                 6       6             8
+       KO      533     500      6.191370                 1      13            19
+
+=== condition_stats: n_lysosomes ===
+n/condition: {'Control': 6, 'KI': 6, 'KO': 6} | kruskal p: 0.40906374927618616
+  KI vs Control: diff=-0.604 CI[-2.23,1.02] d=-0.48 p_bh=0.574
+  KO vs Control: diff=-1.35 CI[-3.28,0.568] d=-0.91 p_bh=0.341
+  depth check (Control): rho=0.24252015353668238 p=0.25352703647807145 n=24
+
+=== condition_stats: lyso_mean_size_um2 ===
+n/condition: {'Control': 6, 'KI': 6, 'KO': 6} | kruskal p: 0.007060662634743063
+  KI vs Control: diff=0.296 CI[-0.467,1.06] d=0.50 p_bh=0.485
+  KO vs Control: diff=-0.708 CI[-1.29,-0.13] d=-1.65 p_bh=0.0173
+  depth check (Control): rho=0.1729907046851861 p=0.41888444267503766 n=24
+
+=== condition_stats: lamp1_integrated ===
+n/condition: {'Control': 6, 'KI': 6, 'KO': 6} | kruskal p: 0.01582445373901401
+  KI vs Control: diff=2.75e+06 CI[-1.95e+06,7.45e+06] d=0.75 p_bh=0.31
+  KO vs Control: diff=-3.43e+06 CI[-7.11e+06,2.54e+05] d=-1.28 p_bh=0.264
+  depth check (Control): rho=0.26379947354880084 p=0.21292407222994425 n=24

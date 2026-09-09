@@ -1,0 +1,71 @@
+/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/.venv/lib/python3.13/site-packages/cellpose/dynamics.py:541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /Users/runner/work/pytorch/pytorch/aten/src/ATen/Context.cpp:823.)
+  coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+[d7] reuse reports/if_segmentation_pilot/d7_percell_full.csv
+[d14] segmenting 72 FOVs...
+[d14] wrote reports/if_segmentation_pilot/d14_percell_full.csv  (1076 cells)
+[d28] segmenting 65 FOVs...
+[d28] wrote reports/if_segmentation_pilot/d28_percell_full.csv  (830 cells)
+
+combined -> reports/if_segmentation_pilot/all_percell_full.csv  (3286 cells total)
+
+======================================================================
+TIMEPOINT d7  (1380 cells)
+======================================================================
+cells/condition: {'Control': 452, 'KI': 395, 'KO': 533}
+
+-- qc_summary --
+condition  n_cells  n_pass  pct_excluded  abnormal_nucleus  border  size_outlier
+  Control      452     434      3.982301                 1      11             6
+       KI      395     375      5.063291                 6       6             8
+       KO      533     500      6.191370                 1      13            19
+
+-- lyso_mean_size_um2 --  kruskal p=0.00706  n/cond={'Control': 6, 'KI': 6, 'KO': 6}
+   KI vs Control: diff=0.296 CI[-0.467,1.06] d=0.50 p_bh=0.485
+   KO vs Control: diff=-0.708 CI[-1.29,-0.13] d=-1.65 p_bh=0.0173
+   depth[Control]: rho=0.173 p=0.419 n=24
+   depth[KI]: rho=0.159 p=0.459 n=24
+   depth[KO]: rho=0.229 p=0.283 n=24
+
+-- n_lysosomes --  kruskal p=0.409  n/cond={'Control': 6, 'KI': 6, 'KO': 6}
+   KI vs Control: diff=-0.604 CI[-2.23,1.02] d=-0.48 p_bh=0.574
+   KO vs Control: diff=-1.35 CI[-3.28,0.568] d=-0.91 p_bh=0.341
+   depth[Control]: rho=0.243 p=0.254 n=24
+   depth[KI]: rho=0.328 p=0.118 n=24
+   depth[KO]: rho=0.0941 p=0.662 n=24
+
+-- lyso_area_frac --  kruskal p=0.00968  n/cond={'Control': 6, 'KI': 6, 'KO': 6}
+   KI vs Control: diff=0.00565 CI[-0.0232,0.0345] d=0.25 p_bh=0.699
+   KO vs Control: diff=-0.03 CI[-0.0566,-0.00335] d=-1.53 p_bh=0.0519
+   depth[Control]: rho=0.244 p=0.25 n=24
+   depth[KI]: rho=0.325 p=0.121 n=24
+   depth[KO]: rho=0.187 p=0.38 n=24
+
+-- lamp1_integrated --  kruskal p=0.0158  n/cond={'Control': 6, 'KI': 6, 'KO': 6}
+   KI vs Control: diff=2.75e+06 CI[-1.95e+06,7.45e+06] d=0.75 p_bh=0.31
+   KO vs Control: diff=-3.43e+06 CI[-7.11e+06,2.54e+05] d=-1.28 p_bh=0.264
+   depth[Control]: rho=0.264 p=0.213 n=24
+   depth[KI]: rho=0.426 p=0.0379 n=24
+   depth[KO]: rho=0.268 p=0.205 n=24
+
+-- perinuclear_index --  kruskal p=0.431  n/cond={'Control': 6, 'KI': 6, 'KO': 6}
+   KI vs Control: diff=-1.43 CI[-3.27,0.403] d=-1.01 p_bh=0.481
+   KO vs Control: diff=-0.76 CI[-3.11,1.59] d=-0.43 p_bh=0.589
+   depth[Control]: rho=0.0296 p=0.893 n=23
+   depth[KI]: rho=-0.29 p=0.169 n=24
+   depth[KO]: rho=-0.102 p=0.652 n=22
+Traceback (most recent call last):
+  File "/Users/pmihack/claire/tmem_2026/tmem-if-refinements/run_all.py", line 88, in <module>
+    if __name__ == "__main__":
+        ^^^^^^
+  File "/Users/pmihack/claire/tmem_2026/tmem-if-refinements/run_all.py", line 84, in main
+    print(f"\ncombined -> {OUT/'all_percell_full.csv'}  ({len(df)} cells total)")
+    ^^^^^^^^^^
+  File "/Users/pmihack/claire/tmem_2026/tmem-if-refinements/run_all.py", line 55, in report
+    for col in READOUTS:
+            ^^^^^^^^^^^^
+  File "/Users/pmihack/claire/tmem_2026/tmem-if-refinements/src/tmem_align/analysis/if_features.py", line 409, in condition_stats
+    )
+    
+  File "/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/.venv/lib/python3.13/site-packages/scipy/stats/_morestats.py", line 5018, in false_discovery_control
+    raise ValueError("All values in `ps` must lie between 0. and 1.")
+ValueError: All values in `ps` must lie between 0. and 1.
