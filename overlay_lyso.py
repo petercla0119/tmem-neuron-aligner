@@ -48,7 +48,7 @@ def main() -> None:
     df = pd.read_csv(CSV)
     # plain subplots, not ImageGrid: full-FOV and zoom are different pixel sizes and
     # ImageGrid forces one shared extent -> the small crop renders as a thumbnail.
-    fig, axes = plt.subplots(3, 2, figsize=(11, 15), gridspec_kw={"width_ratios": [3, 2]})
+    fig, axes = plt.subplots(3, 2, figsize=(11, 15), gridspec_kw={"width_ratios": [3, 2], "wspace": 0.04, "hspace": 0.18})
 
     print(f"{'cond':8} {'otsu_thr':>9} {'n_puncta':>9} {'median_um2':>11} "
           f"{'p90_um2':>9}  (representative FOV, whole frame)")
@@ -75,7 +75,7 @@ def main() -> None:
         axes[i, 0].set_title(f"{cond} — full FOV (median {med:.2f} µm², p90 {p90:.2f})", fontsize=9)
         axes[i, 1].set_title(f"{cond} — zoom (red = detected)", fontsize=9)
 
-    fig.suptitle("d7 LAMP1 lysosome detection (red = detected puncta)", y=0.99)
+    fig.suptitle("d7 LAMP1 lysosome detection (red = detected puncta)", y=0.975)
     fig.savefig(OUT, dpi=150, bbox_inches="tight")
     print(f"\nwrote {OUT}")
 
@@ -109,8 +109,6 @@ def _span_sample(sub: pd.DataFrame, n: int) -> pd.DataFrame:
 
 
 def per_cell_qc_overlays() -> None:
-    import os
-
     from skimage.measure import find_contours
 
     df = pd.read_csv(CSV)
