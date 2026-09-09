@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 
 from .config import ensure_dirs, load_config, load_plate_map, load_roi_annotations, validate_config as validate
+from .deconvolve import DeconvConfig, deconvolve_batch
 from .export_zarr import export_ome_zarr
 from .preprocess import calculate_ic_field_for_plate, calculate_ic_fields_by_timepoint
 from .quantify import quantify_puncta_vs_diffuse
@@ -140,6 +141,54 @@ def compute_ic_fields_command(
             dark = float(ic_fields_raw[f"{name}_darkfield"])
             dark_str = f", darkfield={dark:.1f}"
         click.echo(f"  {name}: shape={ic.shape}, range=[{ic.min():.2f}, {ic.max():.2f}]{dark_str}")
+
+
+@main.command("deconvolve")
+@click.argument("input_dir")
+@click.option("--output", default=None, help="Output directory (default: <input_dir>/deconvolved).")
+@click.option("--n-iter", type=int, default=10, show_default=True, help="Richardson-Lucy iterations.")
+@click.option("--channels", default=None, help="Comma-separated excitation nm to process (e.g. '488,561'). Default: all four.")
+@click.option("--workers", type=int, default=22, show_default=True)
+@click.option("--overwrite", is_flag=True, default=False)
+@click.option("--no-ic", "skip_ic", is_flag=True, default=False, help="Skip illumination correction (not recommended).")
+@click.option("--ic-sample-n", type=int, default=30, show_default=True, help="Number of ND2 files to sample for IC field estimation.")
+def deconvolve_command(
+    input_dir: str,
+    output: str | None,
+    n_iter: int,
+    channels: str | None,
+    workers: int,
+    overwrite: bool,
+    skip_ic: bool,
+    ic_sample_n: int,
+) -> None:
+    """Richardson-Lucy deconvolve all ND2 files under INPUT_DIR -> OUTPUT/*.ome.tif.
+
+    IC (illumination correction) is estimated from a random sample of files and
+    applied before RL. Pass --no-ic to skip. Excludes D17 files automatically.
+    """
+    in_path = Path(input_dir)
+    out_path = Path(output) if output else in_path.parent / "deconvolved" / in_path.name
+    ch_tuple = tuple(int(c) for c in channels.split(",")) if channels else None
+    config = DeconvConfig(n_iter=n_iter)
+    try:
+        results = deconvolve_batch(
+            in_path,
+            out_path,
+            config,
+            channels=ch_tuple,
+            overwrite=overwrite,
+            n_workers=workers,
+            estimate_ic=not skip_ic,
+            ic_sample_n=ic_sample_n,
+        )
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    ok = sum(1 for _, status, _ in results if status == "ok")
+    errs = [(p, msg) for p, status, msg in results if status == "error"]
+    click.echo(f"Done: {ok} ok, {len(errs)} errors")
+    for p, msg in errs:
+        click.echo(f"  ERROR {p}: {msg}", err=True)
 
 
 @main.command("validate-config")
