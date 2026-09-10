@@ -6,9 +6,16 @@ The designed method (not the 2D `tmem_manders_m1` proxy in if_features):
      (median ~= background; only the top ~0.1% of pixels carry signal), so the
      default threshold is a high percentile -- CALIBRATE per dataset.
   2. Build the LAMP1 lysosome volume (3D mask) and its surface.
-  3. For each TMEM punctum, measure centroid-to-nearest-LAMP1-surface distance.
-  4. Compare the observed distances to a position-randomized null: scatter the
-     same number of points uniformly inside the cell volume, recompute distances.
+  3. For each TMEM punctum, measure SURFACE-to-nearest-LAMP1-surface distance:
+     the punctum is a voxel SHELL (its thresholded connected-component boundary,
+     find_boundaries mode="inner"), not a centroid point. The punctum's distance
+     is the MIN over its shell voxels of the anisotropic EDT to LAMP1 (nearest
+     approach). We also record mean/median/max/std across the cell's puncta.
+  4. Compare the observed distances to a SHAPE-PRESERVING position-randomized
+     null: drop each real punctum's shell (same voxel geometry) at a random
+     location inside the cell volume, recompute its min-shell distance. A point
+     null would make surfaces look artefactually close; preserving shape keeps
+     the observed-vs-null comparison honest.
   5. Enrichment readout: fraction of puncta within `threshold_um` of a LAMP1
      surface, observed vs null (and median distance observed vs null).
 
@@ -53,7 +60,7 @@ class ColocConfig:
     seed: int = 0
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "ColocConfig":
+    def from_yaml(cls, path: str | Path) -> ColocConfig:
         import yaml
 
         with open(path) as f:
@@ -116,8 +123,52 @@ def _sample_distances(dt: np.ndarray, coords: np.ndarray) -> np.ndarray:
     return dt[idx[:, 0], idx[:, 1], idx[:, 2]]
 
 
+def _shell_offsets(
+    puncta_labels: np.ndarray,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Per-punctum voxel shells for a labelled crop.
+
+    Returns (ids, shells) where shells[i] is a Kx3 int array of (z,y,x) shell
+    voxel coords for punctum ids[i]. The shell is the inner boundary of each
+    thresholded connected component (find_boundaries mode="inner") -- the
+    punctum's iso-DN surface, one voxel thick. Two-voxel puncta => both voxels.
+    """
+    from skimage.segmentation import find_boundaries
+
+    ids = np.unique(puncta_labels)
+    ids = ids[ids != 0]
+    if ids.size == 0:
+        return ids, []
+    shell = find_boundaries(puncta_labels, mode="inner")
+    sc = np.argwhere(shell)
+    sl = puncta_labels[shell]
+    # A component fully interior to nothing still yields a shell; guard empties.
+    shells = []
+    keep_ids = []
+    for pid in ids:
+        pts = sc[sl == pid]
+        if pts.shape[0] == 0:  # e.g. degenerate label; fall back to all voxels
+            pts = np.argwhere(puncta_labels == pid)
+        shells.append(pts)
+        keep_ids.append(pid)
+    return np.asarray(keep_ids), shells
+
+
+def _summary(vals: np.ndarray, prefix: str) -> dict:
+    """min/mean/median/max/std of a per-punctum distance array, NaN-safe."""
+    if vals.size == 0:
+        return {f"{prefix}_{k}_dist_um": np.nan for k in ("min", "mean", "median", "max", "std")}
+    return {
+        f"{prefix}_min_dist_um": float(vals.min()),
+        f"{prefix}_mean_dist_um": float(vals.mean()),
+        f"{prefix}_median_dist_um": float(np.median(vals)),
+        f"{prefix}_max_dist_um": float(vals.max()),
+        f"{prefix}_std_dist_um": float(vals.std()),
+    }
+
+
 def coloc_enrichment(
-    puncta_centroids: np.ndarray,
+    puncta_labels: np.ndarray,
     lamp1_mask: np.ndarray,
     cell_volume: np.ndarray,
     sampling: tuple[float, float, float],
@@ -125,44 +176,62 @@ def coloc_enrichment(
     n_null: int,
     rng: np.random.Generator,
 ) -> dict:
-    """Observed-vs-null nearest-LAMP1-surface enrichment for one cell.
+    """Observed-vs-null nearest-LAMP1-SURFACE enrichment for one cell.
 
-    distances are µm to the nearest LAMP1 voxel (0 inside a lysosome), via an
-    anisotropic Euclidean distance transform. Null = n_null draws of the same
-    number of points, uniform over cell_volume voxels.
+    Each TMEM punctum is a voxel shell (see _shell_offsets); its distance is the
+    MIN over its shell voxels of the anisotropic EDT to the LAMP1 surface (µm; 0
+    inside a lysosome). Null = n_null draws that re-drop each punctum's shell,
+    shape intact, at a random location inside cell_volume (shape-preserving).
+
+    Per-punctum distances are summarised across the cell's puncta as
+    min/mean/median/max/std (obs_*_dist_um; null_*_dist_um = mean over draws).
     """
     from scipy import ndimage as ndi
 
-    n = int(puncta_centroids.shape[0])
+    ids, shells = _shell_offsets(puncta_labels)
+    n = int(ids.size)
     out = {
         "n_puncta": n,
         "obs_frac_within": np.nan,
         "null_frac_within": np.nan,
         "null_frac_std": np.nan,
         "enrichment": np.nan,  # obs - null fraction
-        "obs_median_dist_um": np.nan,
-        "null_median_dist_um": np.nan,
         "empirical_p": np.nan,  # P(null frac >= obs frac)
     }
+    out.update(_summary(np.empty(0), "obs"))
+    out.update(_summary(np.empty(0), "null"))
     if n == 0 or not lamp1_mask.any() or not cell_volume.any():
         return out
 
     dt = ndi.distance_transform_edt(~lamp1_mask, sampling=sampling)
-    obs = _sample_distances(dt, puncta_centroids)
+
+    # Observed: min EDT over each punctum's own shell voxels.
+    obs = np.array([_sample_distances(dt, s.astype(float)).min() for s in shells])
     obs_frac = float(np.mean(obs <= threshold_um))
     out["obs_frac_within"] = obs_frac
-    out["obs_median_dist_um"] = float(np.median(obs))
+    out.update(_summary(obs, "obs"))
 
+    # Shape-preserving null: translate each shell to a random cell voxel.
     candidates = np.argwhere(cell_volume)  # Kx3 voxel coords in the cropped frame
+    centers = [np.rint(s.mean(axis=0)).astype(int) for s in shells]  # shell centroid
+    offsets = [s - c for s, c in zip(shells, centers)]
     null_fracs = np.empty(n_null, dtype=float)
     null_meds = np.empty(n_null, dtype=float)
+    null_means = np.empty(n_null, dtype=float)
     for i in range(n_null):
-        pick = candidates[rng.integers(0, candidates.shape[0], size=n)]
-        d = _sample_distances(dt, pick.astype(float))
+        picks = candidates[rng.integers(0, candidates.shape[0], size=n)]
+        d = np.array(
+            [
+                _sample_distances(dt, (off + picks[j]).astype(float)).min()
+                for j, off in enumerate(offsets)
+            ]
+        )
         null_fracs[i] = np.mean(d <= threshold_um)
         null_meds[i] = np.median(d)
+        null_means[i] = d.mean()
     out["null_frac_within"] = float(null_fracs.mean())
     out["null_frac_std"] = float(null_fracs.std())
+    out["null_mean_dist_um"] = float(null_means.mean())
     out["null_median_dist_um"] = float(null_meds.mean())
     out["enrichment"] = obs_frac - float(null_fracs.mean())
     out["empirical_p"] = float((np.count_nonzero(null_fracs >= obs_frac) + 1) / (n_null + 1))
@@ -186,12 +255,15 @@ def analyze_fov_coloc(
     nz = tmem.shape[0]
 
     # Detect once over the whole stack; a per-FOV threshold keeps detection uniform.
-    _, all_centroids = detect_tmem_puncta_3d(
+    labels_full, all_centroids = detect_tmem_puncta_3d(
         tmem,
         top_percentile=cfg.tmem_top_percentile,
         threshold=cfg.tmem_threshold,
         min_size_vox=cfg.min_puncta_size_vox,
     )
+    # centroid i <-> ids_all[i] (center_of_mass was called on sorted unique ids)
+    ids_all = np.unique(labels_full)
+    ids_all = ids_all[ids_all != 0]
     lamp1_full = lamp1_mask_3d(
         lamp1, bg_percentile=cfg.lamp1_bg_percentile, threshold=cfg.lamp1_threshold
     )
@@ -210,21 +282,21 @@ def analyze_fov_coloc(
         cell_vol = np.broadcast_to(cell2d_crop, (nz, *cell2d_crop.shape))  # extrude z
         lamp1_crop = lamp1_full[:, y0:y1, x0:x1] & cell_vol
 
-        # puncta whose (y,x) fall inside this cell; shift into the crop frame
+        # puncta whose (y,x) centroid falls inside this cell; crop labels, keep only theirs
         if all_centroids.shape[0]:
             iy = np.rint(all_centroids[:, 1]).astype(int)
             ix = np.rint(all_centroids[:, 2]).astype(int)
             inb = (iy >= y0) & (iy < y1) & (ix >= x0) & (ix < x1)
             inside = inb.copy()
             inside[inb] = cell2d[iy[inb], ix[inb]]
-            pc = all_centroids[inside].copy()
-            pc[:, 1] -= y0
-            pc[:, 2] -= x0
+            inside_ids = ids_all[inside]
+            lab_crop = labels_full[:, y0:y1, x0:x1].copy()
+            lab_crop[~np.isin(lab_crop, inside_ids)] = 0
         else:
-            pc = np.empty((0, 3), dtype=float)
+            lab_crop = np.zeros((nz, *cell2d_crop.shape), dtype=labels_full.dtype)
 
         res = coloc_enrichment(
-            pc, lamp1_crop, cell_vol, sampling, cfg.threshold_um, cfg.n_null_iterations, rng
+            lab_crop, lamp1_crop, cell_vol, sampling, cfg.threshold_um, cfg.n_null_iterations, rng
         )
         res["cell_id"] = int(lab)
         res["n_z_slices"] = int(nz)
