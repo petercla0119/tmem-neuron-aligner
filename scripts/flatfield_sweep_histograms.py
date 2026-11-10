@@ -97,57 +97,70 @@ def plot_fov_histograms(
     channels_to_show: list[str],
     out_path: Path,
 ) -> None:
-    """Per-channel overlaid histograms (raw vs corrected) for all well types."""
+    """Per-channel overlaid histograms grouped by day (d7/d14/d28), 3 conditions per day."""
     n_ch = len(channels_to_show)
-    n_wells = len(fovs)
-    fig, axes = plt.subplots(n_wells, n_ch, figsize=(n_ch * 4, n_wells * 2.8), squeeze=False)
-    fig.suptitle(f"Intensity histograms — raw vs corrected (σ={SIGMA_CHOSEN}, darkfield ON)\nAll Z-planes concatenated (not MIP)", fontsize=11)
+    days = ["d7", "d14", "d28"]
+    n_cond = 3  # KO / Control / KI
+    fig = plt.figure(figsize=(n_ch * 4, n_cond * 2.2 * 3 + 0.8))
+    fig.suptitle(
+        f"Intensity histograms — raw vs corrected (σ={SIGMA_CHOSEN}, darkfield ON)\n"
+        "All Z-planes concatenated (not MIP)",
+        fontsize=11,
+    )
+    subfigs = fig.subfigures(3, 1, hspace=0.04)
 
-    for row, (well_label, zcyx, ch_names) in enumerate(fovs):
-        for col, ch in enumerate(channels_to_show):
-            ax = axes[row][col]
-            if ch not in ch_names:
-                ax.axis("off")
-                continue
-            ci = ch_names.index(ch)
-            raw_zyx = zcyx[:, ci].astype(np.float32)   # (Z, Y, X) — all planes
-            field = fields.get(ch, np.ones(raw_zyx.shape[1:]))
-            dark = darkfields.get(ch, 0.0)
-            corrected_zyx = apply_field_zyx(raw_zyx, field, dark)
+    for di, (day, subfig) in enumerate(zip(days, subfigs)):
+        day_fovs = fovs[di * n_cond : (di + 1) * n_cond]
+        subfig.suptitle(day, fontsize=13, fontweight="bold", x=0.01, ha="left")
+        axes = subfig.subplots(n_cond, n_ch, squeeze=False)
 
-            raw_flat = raw_zyx.ravel()
-            corr_flat = corrected_zyx.ravel()
+        for row, (well_label, zcyx, ch_names) in enumerate(day_fovs):
+            cond_label = well_label.split(" ", 1)[1]  # strip day prefix, keep "KO"/"Control"/"KI"
+            for col, ch in enumerate(channels_to_show):
+                ax = axes[row][col]
+                if ch not in ch_names:
+                    ax.axis("off")
+                    continue
+                ci = ch_names.index(ch)
+                raw_zyx = zcyx[:, ci].astype(np.float32)
+                field = fields.get(ch, np.ones(raw_zyx.shape[1:]))
+                dark = darkfields.get(ch, 0.0)
+                corrected_zyx = apply_field_zyx(raw_zyx, field, dark)
 
-            lo = float(np.percentile(raw_flat, 0.5))
-            hi = float(np.percentile(raw_flat, 99.5))
-            bins = np.linspace(lo, hi, 120)
+                raw_flat = raw_zyx.ravel()
+                corr_flat = corrected_zyx.ravel()
 
-            ax.hist(raw_flat, bins=bins, alpha=0.5, color="gray",
-                    density=True, label="Raw", histtype="stepfilled", linewidth=0)
-            ax.hist(corr_flat, bins=bins, alpha=0.7,
-                    color=CH_COLORS.get(ch, "steelblue"),
-                    density=True, label="Corrected", histtype="step", linewidth=1.5)
+                lo = float(np.percentile(raw_flat, 0.5))
+                hi = float(np.percentile(raw_flat, 99.5))
+                bins = np.linspace(lo, hi, 120)
 
-            if row == 0:
-                ax.set_title(CH_LABELS[ch], fontsize=10)
-            if col == 0:
-                ax.set_ylabel(well_label, fontsize=10)
-            ax.set_xlabel("Intensity (AU)", fontsize=8)
-            ax.tick_params(labelsize=7)
-            if row == 0 and col == 0:
-                ax.legend(fontsize=7)
+                ax.hist(raw_flat, bins=bins, alpha=0.5, color="gray",
+                        density=True, label="Raw", histtype="stepfilled", linewidth=0)
+                ax.hist(corr_flat, bins=bins, alpha=0.7,
+                        color=CH_COLORS.get(ch, "steelblue"),
+                        density=True, label="Corrected", histtype="step", linewidth=1.5)
 
-            raw_mean = float(np.mean(raw_flat))
-            corr_mean = float(np.mean(corr_flat))
-            pct = (corr_mean - raw_mean) / max(raw_mean, 1) * 100
-            ax.axvline(raw_mean, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
-            ax.axvline(corr_mean, color=CH_COLORS.get(ch, "steelblue"), linestyle="--", linewidth=0.8, alpha=0.9)
-            ax.text(0.97, 0.95, f"Δmean: {pct:+.1f}%", transform=ax.transAxes,
-                    ha="right", va="top", fontsize=7,
-                    color="black" if abs(pct) < 2 else "red")
+                if row == 0:
+                    ax.set_title(CH_LABELS[ch], fontsize=10)
+                if col == 0:
+                    ax.set_ylabel(cond_label, fontsize=10)
+                ax.set_xlabel("Intensity (AU)", fontsize=8)
+                ax.tick_params(labelsize=7)
+                if di == 0 and row == 0 and col == 0:
+                    ax.legend(fontsize=7)
 
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
+                raw_mean = float(np.mean(raw_flat))
+                corr_mean = float(np.mean(corr_flat))
+                pct = (corr_mean - raw_mean) / max(raw_mean, 1) * 100
+                ax.axvline(raw_mean, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
+                ax.axvline(corr_mean, color=CH_COLORS.get(ch, "steelblue"), linestyle="--", linewidth=0.8, alpha=0.9)
+                ax.text(0.97, 0.95, f"Δmean: {pct:+.1f}%", transform=ax.transAxes,
+                        ha="right", va="top", fontsize=7,
+                        color="black" if abs(pct) < 2 else "red")
+
+        subfig.subplots_adjust(hspace=0.35, wspace=0.35)
+
+    fig.savefig(out_path, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print(f"  → {out_path.name}", flush=True)
 

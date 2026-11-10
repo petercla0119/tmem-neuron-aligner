@@ -364,7 +364,15 @@ def plot_z_profile(
     channel: str,
     out_path: Path,
 ) -> None:
-    """Mean corrected intensity per Z-plane — should be flat if vignette-only correction."""
+    """Mean intensity per Z-plane before/after correction.
+
+    NOTE: the corrected/raw ratio per plane is NOT expected to be flat, even for a
+    perfect Z-invariant field. ratio(z) = <raw(z)/field>/<raw(z)> = <1/field> +
+    Cov(raw(z), 1/field)/<raw(z)>. The first term is Z-invariant; the covariance
+    term varies with Z because the spatial distribution of signal changes through
+    focus. A small, smooth drift here reflects sample content moving relative to the
+    vignette, not an axial artifact introduced by the correction.
+    """
     ci = ch_names_in_fov.index(channel) if channel in ch_names_in_fov else 0
     raw_z = fov_zcyx[:, ci].astype(np.float32)  # (Z, Y, X)
 
@@ -381,12 +389,13 @@ def plot_z_profile(
     axes[0].set_xlabel("Z plane"); axes[0].set_ylabel("Mean intensity")
     axes[0].set_title(f"Z-profile — {CH_LABELS.get(channel, channel)}"); axes[0].legend()
 
-    # Relative: corrected/raw — should stay near 1.0 if the field is Z-invariant
+    # Relative: corrected/raw per plane. Not flat by design — drift tracks the
+    # spatial covariance of signal with 1/field as content moves through focus.
     ratio = corr_means / np.maximum(raw_means, 1)
     axes[1].plot(z_indices, ratio, "^-", color="purple")
     axes[1].axhline(1.0, color="gray", linestyle=":")
     axes[1].set_xlabel("Z plane"); axes[1].set_ylabel("Corrected / Raw mean")
-    axes[1].set_title("Ratio per plane (should be flat ≈ const)")
+    axes[1].set_title("Ratio per plane (drifts with focus, not an axial artifact)")
 
     fig.suptitle("3D Z-profile check — single 2D field applied across Z", fontsize=11)
     fig.tight_layout()
