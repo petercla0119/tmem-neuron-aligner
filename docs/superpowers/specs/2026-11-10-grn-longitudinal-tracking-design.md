@@ -1,6 +1,6 @@
 # GRN longitudinal single-cell tracking — design
 
-Date: 2026-11-10 · Branch: `feat/grn-longitudinal` (off `csp-dev` @ `6a8a12a`) · Status: draft for Claire's approval
+Date: 2026-11-10 · Branch: `feat/grn-longitudinal` (off `csp-dev` @ `6a8a12a`) · Status: draft for Claire's approval · Reviewer pass done 2026-11-10 (facts below marked *verified on laptop*)
 
 ## Intent
 
@@ -12,9 +12,12 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 
 - **Location** — `/Users/clairepeterson/Desktop/TMEM mCherry mNG longitudinal/` on the laptop (`pmi-local-tunnel`). 414 GB, laptop only. Not copied anywhere for the pilot.
 - **Sessions** — 13 daily folders `2026MMDD_HHMMSS_mmm/`, d5 → d17 (2026-10-10 → 10-22). Folder `20261013_162922_585` is a 2-file brightfield test: skip it.
-- **Files** — one ND2 per well per day, 96 wells per session (rows C–N × columns 03–10). Name stem `2610DD_dN_Z61_Z62_GRN_mCh_mNG_Well<R><CC>_Channel488nm,561nm_Seq<NNNN>.nd2`. The `_mNG` token is absent on d14–d16; parse the day from `_d(\d+)_` and the well from `_Well([A-N]\d{2})_`, never from the stem as a whole.
+- **Files** — one ND2 per well per day, 96 wells per session (rows C–N × columns 03–10). Name stem `2610DD_dN_Z61_Z62_GRN_mCh_mNG_Well<R><CC>_Channel488nm,561nm_Seq<NNNN>.nd2`. The `_mNG` token is absent on d14–d16 and d11/d12 have a double underscore before `Well`; parse the day from `_d(\d+)_` and the well from `_Well([A-N]\d{2})_`, never from the stem as a whole. *Verified on laptop:* all 13 real sessions present, 96 files each; `20261013_164252_553` is the real d8.
 - **Per file** — `CYX` `2 × 9421 × 9421` uint16, single plane, single position, 20× / 0.75 NA, **0.3238 µm/px** (3.05 mm field = whole well, pre-stitched by NIS). 355 MB.
-- **Channels** — index 0 `488nm` = **mNeonGreen nucleus**, identity only. Index 1 `561nm` = **mCherry**, readout only. Embedded ex/em metadata is wrong on both channels; trust the names. mCherry is roughly 5× dimmer than mNG (d5 F05: mNG p99 1615, mCherry p99 306).
+- **Channels** — index 0 `488nm` = **mNeonGreen nucleus**, identity only. Index 1 `561nm` = **mCherry**, readout only. Embedded ex/em metadata is wrong on both channels; trust the names. mCherry is roughly 5× dimmer than mNG (d5 F05: mNG p99 1615, mCherry p99 306). *Verified on laptop:* exposure is 100 ms on every day; healthy wells still dim about 40 % in mNG over the run, so every per-day step must be adaptive, never a fixed DN.
+- **Density** — *verified on laptop:* roughly **5,000–8,000 nuclei per well** at d5 (Otsu components 5,235 in C03), not hundreds. Tables are large but fine; montages must sample tracks.
+- **Motion** — *verified on laptop:* consecutive-day shifts are rigid translations up to about 90 px/day with quadrants agreeing within 4–8 px; no rotation. Direct d5→dN phase correlation fails once the field has changed (C03 d5→d9 and later), so registration chains consecutive days and composes to the anchor.
+- **Known anomaly** — *verified on laptop:* **C03 (WT 61) loses about 80 % of its nuclei between d7 and d8 and 93 % by d17**; mCherry falls in step, focus is fine. C04 declines gently; I03 and F08 hold. Whether this is biology or a plate event is Claire's call (open question below).
 - **Plate map** — vault `03_contexts/2026_tmem/reference/mng-longitudinal-plate-map.md`. Four conditions, WT vs GRN-mutant (KO) × lines 61 / 62; each column holds one condition in rows C–H and another in rows I–N; 24 imaged wells per condition, 12 per row block. Ship it as `configs/grn_longitudinal_plate_map.csv` (long format: `column,block,rows,genotype,line`).
 
 ## Goals
@@ -72,9 +75,9 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
  → 8. montage                  per-well figure: tracks over days, deaths marked
 ```
 
-**Registration** — reuse `register_translation` on mNG at 1/8 scale (1178²) for the coarse shift, then refine at full resolution on a central crop or tiled, float32, to keep memory in check. Anchor = d5 (or the first available day). Record per-day shift and correlation; flag a day when the residual exceeds a threshold and mark that day's measurements `registration_failed`. Translation only; no rotation in v1 (plate is not removed between consecutive days — confirm from shifts in the pilot).
+**Registration** — **consecutive-day chaining**, composed to the d5 anchor (direct-to-anchor correlation breaks once the field changes; verified). Coarse shift per pair with `register_translation` on mNG at 1/8 scale (1178²); full-resolution refinement calls `skimage.registration.phase_cross_correlation` directly on crops, float32 — `register_translation`'s masked path is integer-pixel and resamples the whole moving array, so it is reused for the coarse step only. Translation only; no rotation (verified). Record per-pair shift, correlation, and a nucleus-centroid residual; flag a pair when the residual exceeds a threshold and mark the downstream day `registration_failed`.
 
-**Segmentation** — left to the builder, with this guidance: start classical (background subtraction, Gaussian, local threshold, watershed on distance transform) because nuclei are round, bright, and the laptop has no GPU. Target is **hundreds of nuclei per well**, not dozens; global Otsu on this assay found 23–47 and is known to be wrong. Cellpose `nuclei` on CPU is the fallback if classical cannot separate touching nuclei. Whatever is chosen, cache label images per well per day so linking and measuring can be re-run without re-segmenting.
+**Segmentation** — left to the builder, with this guidance: start classical (background subtraction, Gaussian, local threshold, watershed on distance transform) because nuclei are round, bright, and the laptop has no GPU. Expect **5,000–8,000 nuclei per well** (verified); a per-day adaptive threshold is mandatory because mNG dims about 40 % over the run. Cellpose `nuclei` on CPU is the fallback if classical cannot separate touching nuclei. Whatever is chosen, cache label images per well per day so linking and measuring can be re-run without re-segmenting.
 
 **Linking** — the four failure modes in `docs/tracking_hardening_plan.md` (ID collision, cumulative drift, drift-swap, no QC signal) are the requirements list. Link **consecutive days** (not day 0 → day N), require reciprocal nearest neighbors, resolve the remainder with a global assignment (Hungarian on distance) under a max displacement in µm, allow a one-day gap, and never let a nucleus that has vanished be matched to anything on a later day. Every link records distance and whether it was reciprocal; every track records how it ended.
 
@@ -87,6 +90,7 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 - `cells.parquet` — one row per nucleus per day: `well, day, track_id, label, y, x, area_px, mng_mean, ring_mean, ring_integrated, ring_area_px, background, linked_from, link_dist_px, reciprocal, flags`
 - `tracks.parquet` — one row per track: `well, track_id, first_day, last_day, end_state ∈ {censored, died, lost}, end_reason, n_days, n_gaps, baseline_ring_mean, baseline_day`
 - `survival.csv` — per track in counting-process form for `lifelines`: `track_id, well, genotype, line, block, start, stop, event, baseline_mcherry, mcherry_tv`
+- `wells.csv` — per well: nuclei at d5, retention fraction at d17, `retention_flag` (so the notebook can exclude collapse wells or fit a well-level frailty term)
 - `counts.csv` — per day: nuclei detected, tracks alive, deaths, losses
 - `registration.csv` — per day: dy, dx, residual, status
 - `qc/montage.png`, `qc/tracks_<n>.png` — visual checks
@@ -94,12 +98,12 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 
 ## Pilot (laptop)
 
-- **Wells** — one per condition, all from row block C–H so block is held constant: `C03` WT 61, `C04` KO 61, `C05` WT 62, `C06` KO 62. Second pass adds the I–N counterparts if time allows.
+- **Wells** — one per condition from row block C–H, **interior wells** so an edge or corner event does not dominate: *proposed (mine, pending Claire)* `F08` WT 61, `E04` KO 61, `F05` WT 62, `E06` KO 62. `C03` is kept as a fifth, labeled **known-collapse** well so the pipeline's handling of mass loss is exercised but not used to calibrate the death rule. Second pass adds the I–N counterparts if time allows.
 - **Days** — all 13.
 - **Entry point** — `tmem-align longitudinal track-well --config configs/grn_longitudinal.yaml --well C03`, plus a `scripts/run_grn_pilot.py` that loops the four wells.
 - **Pass criteria**
-  - registration residual ≤ 2 px at full resolution on ≥ 12 of 13 days per well
-  - ≥ 100 nuclei detected per well on d5, and the builder shows a segmentation overlay that Claire agrees looks right
+  - per-pair nucleus-centroid registration residual ≤ 2 px at full resolution on ≥ 11 of 12 consecutive pairs per well
+  - nucleus count on d5 within 20 % of an independent Otsu-component count, and the builder shows a segmentation overlay that Claire agrees looks right
   - of d5 nuclei, ≥ 70 % end as censored-at-d17 or died; lost ≤ 10 %
   - the montage lets Claire confirm or replace the death rule by eye on at least five real deaths
   - mCherry trajectories for a handful of cells are smooth across days (no sawtooth from mis-links)
@@ -127,6 +131,11 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 - Whether `survival.csv` time-varying form is wide or long; `lifelines` accepts both.
 - Montage layout.
 
+## Open questions for Claire (before the pilot)
+
+1. **C03 collapse** — is the 80 % loss between d7 and d8 in C03 a known event (detachment, media change, edge effect) or real biology? If a plate event: pilot on interior wells as proposed and exclude flagged wells downstream. If biology: keep C03 in the pilot set, add a gently declining WT well for rule calibration, and plan a well-level frailty term in the Cox model.
+2. **Who drives the pilot loop** — may the builder pull `feat/grn-longitudinal` onto the laptop and iterate run → overlay → adjust unattended over SSH, copying back only small PNGs, or does Claire run each round? This decides whether the pilot is one iterative phase or several hand-offs.
+
 ## What this does not decide yet (needs Claire, after the pilot)
 
 - The real death signature in mNG, and whether the 2-day rule stands.
@@ -136,6 +145,7 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 ## References in this repo and the vault
 
 - `src/tmem_align/register.py` — `register_translation`, reused as is.
-- `src/tmem_align/nd2_tools.py` — ND2 reading, reused.
-- `scripts/make_tracking_gif.py` and `docs/tracking_hardening_plan.md` — prior greedy tracker and its failure analysis; requirements source, not code source.
+- `src/tmem_align/io.py` — `read_image` (`nd2.imread`) is the in-memory ND2 reader to reuse; `nd2_tools.extract_nd2_selection` writes OME-TIFF with a 2 GB cap and is not suitable.
+- `pyproject.toml` — add `pyarrow` for the parquet outputs (not currently a dependency).
+- `scripts/make_tracking_gif.py` (this branch) and `docs/tracking_hardening_plan.md` (main checkout only; not on `csp-dev`) — prior greedy tracker and its failure analysis; the four failure modes are restated under *Linking* above.
 - Vault: `03_contexts/2026_tmem/reference/mng-longitudinal-plate-map.md`, `TMEM Project Overview 2026` (dataset entry), `02_knowledge/microscopy/cell_segmentation_methods_tmem_neuron_aligner.md` (segmentation target).
