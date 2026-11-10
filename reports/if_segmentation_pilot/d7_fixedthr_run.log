@@ -1,0 +1,37 @@
+Found 72 ND2 files
+Fixed lyso_threshold = 3765.0 DN (median Control+KI Otsu on p50-bg image)
+Start: 03:46:49
+/Users/pmihack/claire/tmem_2026/tmem-neuron-aligner/.venv/lib/python3.13/site-packages/cellpose/dynamics.py:541: UserWarning: Sparse invariant checks are implicitly disabled. Memory errors (e.g. SEGFAULT) will occur when operating on a sparse tensor which violates the invariants, but checks incur performance overhead. To silence this warning, explicitly opt in or out. See `torch.sparse.check_sparse_tensor_invariants.__doc__` for guidance.  (Triggered internally at /Users/runner/work/pytorch/pytorch/aten/src/ATen/Context.cpp:823.)
+  coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+
+Done: 04:08:04
+Rows: 1,380, QC-pass: 1,309
+Saved: /Users/pmihack/claire/tmem_2026/tmem-if-refinements/reports/if_segmentation_pilot/d7_percell_fixedthr.csv
+
+=== condition_stats: lyso_mean_size_um2 (fixed thr) ===
+               mean    median       std
+condition                              
+Control    1.034593  0.890876  0.515166
+KI         1.540419  1.438778  0.728755
+KO         0.337659  0.361641  0.201117
+KW p=0.0030
+  KI vs Control: raw p=0.2403, BH p=0.2403
+  KO vs Control: raw p=0.0043, BH p=0.0087
+
+=== condition_stats: n_lysosomes (fixed thr) ===
+               mean  median       std
+condition                            
+Control    4.250000  4.3750  1.806239
+KI         4.666667  5.1250  1.053763
+KO         3.187500  3.0625  1.758462
+KW p=0.3196
+  KI vs Control: raw p=0.8099, BH p=0.8099
+  KO vs Control: raw p=0.3768, BH p=0.7536
+
+=== condition_stats: lamp1_mean (fixed thr) ===
+                 mean      median         std
+condition                                    
+Control    534.769547  545.143068  241.551670
+KI         743.214919  632.332655  281.122709
+KO         300.277259  326.871458  105.865609
+KW p=0.0115
