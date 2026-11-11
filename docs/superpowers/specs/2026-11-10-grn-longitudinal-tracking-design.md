@@ -85,7 +85,12 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 
 **Linking** — the four failure modes in `docs/tracking_hardening_plan.md` (ID collision, cumulative drift, drift-swap, no QC signal) are the requirements list. Link **consecutive days** (not day 0 → day N), require reciprocal nearest neighbors, resolve the remainder with a global assignment (Hungarian on distance) under a max displacement in µm, allow a one-day gap, and never let a nucleus that has vanished be matched to anything on a later day. Every link records distance and whether it was reciprocal; every track records how it ended.
 
-**Measurement** — ring = `dilate(nucleus, r_px) − nucleus`, intersected with that nucleus's Voronoi cell computed on all nuclei present that day, intersected with the registered field. Report `ring_mean`, `ring_integrated`, `ring_area_px`, `nucleus_area_px`, `nucleus_mng_mean`, `background`. If the ring is clipped below a minimum area, flag it.
+**Measurement** — two regions per cell, both reported, so the choice can be made on data rather than up front:
+
+1. **Ring** (default, geometry-blind) — `dilate(nucleus, r_px) − nucleus`, intersected with that nucleus's Voronoi cell computed on all nuclei present that day, intersected with the registered field.
+2. **Cell-body mask** (Claire, 2026-11-11: cpsam already looks acceptable on her laptop, will need fine-tuning) — Cellpose-SAM on a two-channel input (561 cytoplasm + 488 nucleus), **seeded by the tracked nucleus** so each body inherits the cell ID and a body can never exist without its nucleus. Fine-tune human-in-the-loop with the recipe already used for MAP2 bodies (vault `HOWTO-Cellpose-HITL-Training`, the 2026-08-27 `map2_cellbody_cpsam` precedent). Report `body_area_px`, `body_mean`, `body_integrated`, `body_ok` (mask found, contains the nucleus, area within plausible range).
+
+Caveat carried into the analysis: a body mask drawn on mCherry has an area that depends on mCherry brightness, so `body_mean` is partly circular; `body_integrated` and the ring are the comparators that are not. If the two regions disagree on the KO-vs-WT direction, the ring wins until the disagreement is understood. Report `ring_mean`, `ring_integrated`, `ring_area_px`, `nucleus_area_px`, `nucleus_mng_mean`, `background`. If the ring is clipped below a minimum area, flag it.
 
 ## Outputs
 
@@ -133,6 +138,7 @@ This is a **new dataset and a new module**. It does not extend the 260213 pilot 
 - Label-cache format (npz or zarr; zarr must stay `<3`).
 - Hungarian vs. greedy-after-reciprocal for the residual assignment.
 - Whether `survival.csv` time-varying form is wide or long; `lifelines` accepts both.
+- How many hand-corrected cell bodies the HITL fine-tune needs (the MAP2 model used 233 ROIs over 9 FOVs); which days to sample so dim late cells are represented.
 - Montage layout.
 
 ## Open questions for Claire (before the pilot)
