@@ -7,5 +7,5 @@ if [[ -z "$UV_BIN" ]]; then echo 'uv is required; install it before bootstrap.' 
 "$UV_BIN" venv --python 3.12 .venv
 "$UV_BIN" pip install --python .venv/bin/python -r handoff/requirements-longitudinal.txt
 "$UV_BIN" pip freeze --python .venv/bin/python > handoff/installed-environment.txt
-PYTHONPATH=src .venv/bin/python -m pytest tests/test_longitudinal_counts.py tests/test_plate_counts.py -q -p no:napari
+PYTHONPATH=src .venv/bin/python -m pytest tests/test_longitudinal_counts.py tests/test_plate_counts.py tests/test_array_archive.py -q -p no:napari
 .venv/bin/python -c 'import torch; print("MPS available:", torch.backends.mps.is_available()); assert torch.backends.mps.is_available()'

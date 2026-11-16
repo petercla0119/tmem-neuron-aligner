@@ -1,4 +1,4 @@
-Longitudinal nuclei and mCherry — portable release 20261115-v1
+Longitudinal nuclei and mCherry — portable release 20261115-v2
 
 Contains the uncommitted analysis implementation from isolated branch
 codex/longitudinal-nuclei-mcherry, based on 6a8a12adb4587aadee65f81ab5b32b8891ad8029.
@@ -6,7 +6,7 @@ Code hashes are in handoff/code_manifest.json. This is a code-only snapshot,
 not a clone of the worktree or a copy of its virtual environment.
 
 On pmihack:
-  cd /Users/pmihack/claire/tmem_2026/analysis/longitudinal-counts-20261115-v1
+  cd /Users/pmihack/claire/tmem_2026/analysis/longitudinal-counts-20261115-v2
   bash handoff/bootstrap.sh
 After the data copy finishes:
   .venv/bin/python scripts/run_plate_counts.py --input /Users/pmihack/claire/tmem_2026/data/mCherry-mNG-longitudinal --preflight-only
@@ -41,3 +41,8 @@ The resolution_qc material is the pilot sensitivity check, not validation of
 new wells. The report green-unit sanity threshold comes from this dataset.
 Direct dependencies are pinned; installed-environment.txt records resolved
 transitive versions. The existing pmihack repository and environment are unused.
+
+Version 2 changes only lossless NPZ compression to DEFLATE level 1.
+Existing scientific configurations, masks, measurements and output paths are
+compatible with version 1. Completed frames remain reusable. The original v1
+release is retained on pmihack; v2 has separate source and environment.

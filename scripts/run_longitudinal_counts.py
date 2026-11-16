@@ -24,6 +24,7 @@ from cellpose import models
 from scipy import ndimage as ndi
 from skimage.segmentation import find_boundaries
 
+from tmem_align.analysis.array_archive import save_array_archive
 from tmem_align.analysis.longitudinal_counts import (
     add_baseline_changes,
     prepare_channels,
@@ -264,8 +265,8 @@ def main():
             qc_status="automated_not_manually_adjudicated",
         )
         # Float32 block means are lossless for uint16 block sums divided by a power of two.
-        np.savez_compressed(out / "preprocessed" / f"{key}.npz", green=green, red=red, valid=valid)
-        np.savez_compressed(out / "frames" / f"{key}_labels.npz", labels=masks)
+        save_array_archive(out / "preprocessed" / f"{key}.npz", green=green, red=red, valid=valid)
+        save_array_archive(out / "frames" / f"{key}_labels.npz", labels=masks)
         pd.DataFrame(
             cells,
             columns=[
