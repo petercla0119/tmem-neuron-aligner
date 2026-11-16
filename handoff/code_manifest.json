@@ -1,0 +1,20 @@
+{
+  "src/tmem_align/__init__.py": "7178c4d8b4991032f995e692beb8a84b2569e02b992d54c54fa6b6ff4da4fab5",
+  "src/tmem_align/analysis/__init__.py": "33dd2de4ad7198b14dd77fca5e3356a16ef98f1d936cd9f8a4997f8e95d12a1d",
+  "src/tmem_align/analysis/longitudinal_counts.py": "8b0717a8373c40fa5592873d2d8fcd50935c03e7d2f4cf0500e07971597ca5a7",
+  "scripts/run_longitudinal_counts.py": "b2e59ff3e6912cd7f5478197f8d098474edec4dd10442fd2db434049a994fc8f",
+  "scripts/report_longitudinal_counts.py": "de82cc70eb15581f5daa1f5e7937c369460377fc3b474fac52202fa489fb54ed",
+  "scripts/run_plate_counts.py": "57684bf0384275e658761a259801d29c95a55fc519511487fff3dbb34a293bab",
+  "tests/test_longitudinal_counts.py": "9ac0118fff63403df840b06f2bd9c63606c9b63f68c8c6af5b2a0c57e0f435f9",
+  "tests/test_plate_counts.py": "f7928be3786f1f939421e3295594e721da9efdc42b6df043e78d4a3fcbc5f8bb",
+  "handoff/README.txt": "b35de332dcbd076e482b83a7f4ad24140fd98d2f2893f3c69ff0b6a01e88e9a7",
+  "handoff/bootstrap.sh": "b0b0717a3401aeb6eba2028b0eea9be7d62821701b9c14d082f3c067673b197b",
+  "handoff/requirements-longitudinal.txt": "307715f0d8c449ccd0fce8153542b9fef0b6eb3ed33dfb064373f4cd857aeceb",
+  "handoff/resolution_qc/initial_resolution_comparison.png": "66db5603ba85227df3b01a4c13a6329c2b9ca614b75f6807c6361b5cf889eb1f",
+  "handoff/resolution_qc/late_day_resolution_comparison.csv": "b883c8ccf4ee87f3d71205f90b9f2f169c6702a628456868bd1fe92f839852e0",
+  "handoff/resolution_qc/late_day_resolution_comparison.png": "e5c0355e0083a3b927c05caee982fd5d91c83f09bb64661037fd6b6ca6bb7043",
+  "handoff/resolution_qc/physical_size_resolution_comparison.csv": "e2c76c44f1037c4da65ade9c83f9f64eae1097f37bfedf58356285553678c0d2",
+  "handoff/resolution_qc/physical_size_resolution_comparison.png": "9d5d00719059bb3d9cb1315cb431a7461112fbc1b023de86b25dee063512705c",
+  "handoff/run-all.sh": "7f4d5293788fbd20434cbb806b6a27ec913ab59b0082d1fa03f72d364ec85e47",
+  "handoff/source_manifest.json": "5a8d1edb84747c1d35f80deca215ce3983146c8ca732cd1eb148a50c203fe358"
+}
