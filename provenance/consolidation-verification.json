@@ -1,0 +1,33 @@
+{
+  "verified_utc": "2026-11-16T18:17:25.578731+00:00",
+  "tests": {
+    "passed": 19,
+    "failed": 0,
+    "log": "/Users/pmihack/claire/tmem_2026/analysis/archive/consolidation-20261116/canonical-tests.txt"
+  },
+  "cli_help_checks": [
+    "build_longitudinal_plate_summary.py",
+    "measure_nuclear_mng.py",
+    "report_longitudinal_counts.py",
+    "run_longitudinal_counts.py",
+    "run_plate_counts.py"
+  ],
+  "exact_pinned_packages": 57,
+  "mps_available": true,
+  "relocations": [
+    {
+      "original_path": "/Users/pmihack/claire/tmem_2026/analysis/longitudinal-counts-20261115-v1",
+      "archived_path": "/Users/pmihack/claire/tmem_2026/analysis/archive/consolidation-20261116/releases/longitudinal-counts-20261115-v1",
+      "preserved_entries": 27300,
+      "compatibility_symlink": true
+    },
+    {
+      "original_path": "/Users/pmihack/claire/tmem_2026/analysis/longitudinal-counts-20261115-v2",
+      "archived_path": "/Users/pmihack/claire/tmem_2026/analysis/archive/consolidation-20261116/releases/longitudinal-counts-20261115-v2",
+      "preserved_entries": 27322,
+      "compatibility_symlink": true
+    }
+  ],
+  "reporting_workspace_preserved": "/Users/pmihack/claire/tmem_2026/analysis/longitudinal-summary-20261116",
+  "outputs_modified_by_consolidation": false
+}

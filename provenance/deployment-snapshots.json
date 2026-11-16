@@ -1,0 +1,81 @@
+{
+  "created_utc": "2026-11-16T18:14:40.292802+00:00",
+  "canonical_repository": "/Users/pmihack/claire/tmem_2026/analysis/tmem-longitudinal",
+  "original_source_worktree": "/Users/clairepeterson/.codex/worktrees/acc6/tmem-neuron-aligner",
+  "original_base_commit": "6a8a12adb4587aadee65f81ab5b32b8891ad8029",
+  "note": "Git history imports deployment snapshots; it is not the complete upstream project history. Original source, logs and environments are preserved. Scientific outputs are not modified by consolidation.",
+  "release_commits": {
+    "longitudinal-counts-20261115-v1": "ebb6af7aed80ca9906dd299d5038df0088051535",
+    "longitudinal-counts-20261115-v2": "a2394fcfb65d959b7133e6288ebc4c1409555199",
+    "longitudinal-summary-20261116": "0d494dfd4109603b8279f911dc11cf524296ed3c"
+  },
+  "deployment_file_sha256": {
+    "longitudinal-counts-20261115-v1": {
+      "full_plate.pid": "b6f8a84bfdaff3f41ddbc1246bdb4ccabbde220426bb446485218e1bd0d669be",
+      "run.log": "a273440d7a184f1b71151068be94a7f7db60ecc709b1d31c007a39301eaa7695",
+      "handoff/source_manifest.json": "5a8d1edb84747c1d35f80deca215ce3983146c8ca732cd1eb148a50c203fe358",
+      "handoff/requirements-longitudinal.txt": "307715f0d8c449ccd0fce8153542b9fef0b6eb3ed33dfb064373f4cd857aeceb",
+      "handoff/bootstrap.sh": "b0b0717a3401aeb6eba2028b0eea9be7d62821701b9c14d082f3c067673b197b",
+      "handoff/README.txt": "b35de332dcbd076e482b83a7f4ad24140fd98d2f2893f3c69ff0b6a01e88e9a7",
+      "handoff/installed-environment.txt": "4b0a7e86134d866df58ece9304449cee06360771ff6cb445c4bfb9e7b11776fa",
+      "handoff/run-all.sh": "7f4d5293788fbd20434cbb806b6a27ec913ab59b0082d1fa03f72d364ec85e47",
+      "handoff/code_manifest.json": "f1eee2f0fd351a498bfccfb2d5cd2a35d630cc0b42bab1b4fe35f7d4c58537c8",
+      "handoff/resolution_qc/late_day_resolution_comparison.csv": "b883c8ccf4ee87f3d71205f90b9f2f169c6702a628456868bd1fe92f839852e0",
+      "handoff/resolution_qc/physical_size_resolution_comparison.csv": "e2c76c44f1037c4da65ade9c83f9f64eae1097f37bfedf58356285553678c0d2",
+      "handoff/resolution_qc/late_day_resolution_comparison.png": "e5c0355e0083a3b927c05caee982fd5d91c83f09bb64661037fd6b6ca6bb7043",
+      "handoff/resolution_qc/physical_size_resolution_comparison.png": "9d5d00719059bb3d9cb1315cb431a7461112fbc1b023de86b25dee063512705c",
+      "handoff/resolution_qc/initial_resolution_comparison.png": "66db5603ba85227df3b01a4c13a6329c2b9ca614b75f6807c6361b5cf889eb1f",
+      "tests/test_plate_counts.py": "f7928be3786f1f939421e3295594e721da9efdc42b6df043e78d4a3fcbc5f8bb",
+      "tests/test_longitudinal_counts.py": "9ac0118fff63403df840b06f2bd9c63606c9b63f68c8c6af5b2a0c57e0f435f9",
+      "scripts/run_plate_counts.py": "57684bf0384275e658761a259801d29c95a55fc519511487fff3dbb34a293bab",
+      "scripts/report_longitudinal_counts.py": "de82cc70eb15581f5daa1f5e7937c369460377fc3b474fac52202fa489fb54ed",
+      "scripts/run_longitudinal_counts.py": "b2e59ff3e6912cd7f5478197f8d098474edec4dd10442fd2db434049a994fc8f",
+      "src/tmem_align/__init__.py": "7178c4d8b4991032f995e692beb8a84b2569e02b992d54c54fa6b6ff4da4fab5",
+      "src/tmem_align/analysis/__init__.py": "33dd2de4ad7198b14dd77fca5e3356a16ef98f1d936cd9f8a4997f8e95d12a1d",
+      "src/tmem_align/analysis/longitudinal_counts.py": "8b0717a8373c40fa5592873d2d8fcd50935c03e7d2f4cf0500e07971597ca5a7"
+    },
+    "longitudinal-counts-20261115-v2": {
+      "full_plate.pid": "42f4b0f2047aa523c9d49a3d6796f16d94f6eb6c2edf5b62b0ef35e072eacaaa",
+      "run.log": "b2dabfe1f1cede05127da8debe46c54a8ae9506c70a03dc59b057b876382b1b3",
+      "handoff/optimization_verification.json": "b378d5ebef07c63db3e32cb415b611471a724becd70d57f3eea21026c555ded8",
+      "handoff/source_manifest.json": "5a8d1edb84747c1d35f80deca215ce3983146c8ca732cd1eb148a50c203fe358",
+      "handoff/requirements-longitudinal.txt": "307715f0d8c449ccd0fce8153542b9fef0b6eb3ed33dfb064373f4cd857aeceb",
+      "handoff/bootstrap.sh": "0e20805ce56483c4261d5cd1d54a9d9220d4bd2fcae3481e9e4316c0cdc9b41e",
+      "handoff/README.txt": "b517e7980a8c335e2b4bfe503ac6f21be5532fc31bac26d9602244fb16f1f501",
+      "handoff/installed-environment.txt": "4b0a7e86134d866df58ece9304449cee06360771ff6cb445c4bfb9e7b11776fa",
+      "handoff/run-all.sh": "7f4d5293788fbd20434cbb806b6a27ec913ab59b0082d1fa03f72d364ec85e47",
+      "handoff/code_manifest.json": "1347a1730f1e8fe21e4ae6d27f9fe655951a24ca0066985f0c4f7bac4c6c68bb",
+      "handoff/resolution_qc/late_day_resolution_comparison.csv": "b883c8ccf4ee87f3d71205f90b9f2f169c6702a628456868bd1fe92f839852e0",
+      "handoff/resolution_qc/physical_size_resolution_comparison.csv": "e2c76c44f1037c4da65ade9c83f9f64eae1097f37bfedf58356285553678c0d2",
+      "handoff/resolution_qc/late_day_resolution_comparison.png": "e5c0355e0083a3b927c05caee982fd5d91c83f09bb64661037fd6b6ca6bb7043",
+      "handoff/resolution_qc/physical_size_resolution_comparison.png": "9d5d00719059bb3d9cb1315cb431a7461112fbc1b023de86b25dee063512705c",
+      "handoff/resolution_qc/initial_resolution_comparison.png": "66db5603ba85227df3b01a4c13a6329c2b9ca614b75f6807c6361b5cf889eb1f",
+      "tests/test_array_archive.py": "bee6caa0ea3e307e329af32f5009210b32c7b924ea63e6b1de89856030e3f2e3",
+      "tests/test_plate_counts.py": "f7928be3786f1f939421e3295594e721da9efdc42b6df043e78d4a3fcbc5f8bb",
+      "tests/test_longitudinal_counts.py": "9ac0118fff63403df840b06f2bd9c63606c9b63f68c8c6af5b2a0c57e0f435f9",
+      "scripts/run_plate_counts.py": "57684bf0384275e658761a259801d29c95a55fc519511487fff3dbb34a293bab",
+      "scripts/report_longitudinal_counts.py": "de82cc70eb15581f5daa1f5e7937c369460377fc3b474fac52202fa489fb54ed",
+      "scripts/run_longitudinal_counts.py": "b0629835465b7f9351686402e6b610aae637fb266b54d00f2b245d3697284149",
+      "src/tmem_align/__init__.py": "7178c4d8b4991032f995e692beb8a84b2569e02b992d54c54fa6b6ff4da4fab5",
+      "src/tmem_align/analysis/array_archive.py": "0d160d651039314d30e684df3a3c576d9fbc723d892b2855b8793c89b2a6a254",
+      "src/tmem_align/analysis/__init__.py": "33dd2de4ad7198b14dd77fca5e3356a16ef98f1d936cd9f8a4997f8e95d12a1d",
+      "src/tmem_align/analysis/longitudinal_counts.py": "8b0717a8373c40fa5592873d2d8fcd50935c03e7d2f4cf0500e07971597ca5a7"
+    },
+    "longitudinal-summary-20261116": {
+      "longitudinal_plate_map.csv": "66a8fc082ccdd90fd3e25e1abf2574c21ab33abf769fa7f8782bfb764ddfeb8f",
+      "nuclear_mng.pid": "4916344d02341a3a90f9132f83c6cfe60ab6f83d278e75b98226a6292fd79b2e",
+      "nuclear_mng.log": "50e89ffb91e73892614d10e02825fdc45badf841ae03c47a70bfe8b813a6e8ae",
+      "tests/test_nuclear_signal.py": "814c13fa75b1c5400eb4f277af1d192c9f0e031b991fe7e7a312db79933b5f84",
+      "scripts/measure_nuclear_mng.py": "f172ebe65d17f455864320b96cf0197e0ec0861ac8fd7a3eb1b43aae3496689f",
+      "scripts/build_longitudinal_plate_summary.py": "4dc9b370fcb493da1dc0c3740d735337e85936ea183f21913993fd7cb426e155",
+      "src/tmem_align/__init__.py": "7178c4d8b4991032f995e692beb8a84b2569e02b992d54c54fa6b6ff4da4fab5",
+      "src/tmem_align/analysis/nuclear_signal.py": "6782d9da0c8a27bf81181fd13aded9ae309aa0639196794fa92c1ebcb86f723c",
+      "src/tmem_align/analysis/__init__.py": "33dd2de4ad7198b14dd77fca5e3356a16ef98f1d936cd9f8a4997f8e95d12a1d"
+    }
+  },
+  "archive_sha256": {
+    "longitudinal-counts-20261115-v1-source-and-records.tar.gz": "8f0a31c9fc34a56e7e8e092318621d1219b4191d7c3f2aac07887452e0cb6a18",
+    "longitudinal-counts-20261115-v2-source-and-records.tar.gz": "dc37a0c8680a92ac06fb5de5df6bb7903c5c8648c15f629051e9aa57bbb47600",
+    "longitudinal-summary-20261116-source-and-records.tar.gz": "13eb057caef90d97cca8c07e479e3cdadbc003dd6d24805c19083202c8e54262"
+  }
+}
