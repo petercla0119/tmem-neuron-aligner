@@ -56,7 +56,14 @@ PYTHONPATH=src .venv/bin/python scripts/measure_nuclear_mng.py --output /path/to
 PYTHONPATH=src .venv/bin/python scripts/build_longitudinal_plate_summary.py --output /path/to/output --plate-map longitudinal_plate_map.csv --backups /path/to/report-backups
 ```
 
-`--baseline-day` (default 6, chosen 2026-11-16 at the biologist check-in) sets the day each well's fold readouts are normalized to; the fold columns are named `<readout>_day<N>_fold`. On a rerun the plate report keeps sections appended by later stages and only the fold definition is swapped. The `*_fold_baseline` columns written by the counts stage still use the first acquired day.
+Within-well and within-condition comparisons (the spatial tile measurement is the slow step; the report builder reads the baseline day back from `longitudinal_summary_provenance.json`, so run it again after any summary rerun):
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/measure_well_spatial.py --output /path/to/output --workers 6
+PYTHONPATH=src .venv/bin/python scripts/build_well_comparisons.py --output /path/to/output
+```
+
+`--baseline-day` (default 6, chosen 2026-11-16 at the biologist check-in) sets the day each well's fold readouts are normalized to; the fold columns are named `<readout>_day<N>_fold`. On a rerun the plate report keeps sections appended by later stages and only the fold definition is swapped. The `*_fold_baseline` columns written by the counts stage still use the first acquired day. The comparisons builder used to hardcode day 5; it is now in this repository and follows the provenance value.
 
 `handoff/README.txt` and `handoff/code_manifest.json` describe the historical v2 deployment. Use this README and `setup.sh` for the consolidated repository. Git tags preserve the original handoff files exactly.
 
