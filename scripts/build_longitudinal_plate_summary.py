@@ -23,7 +23,7 @@ COLORS = {"WT61": "#1269a8", "KO61": "#d55e00", "WT62": "#159579", "KO62": "#ae4
 STYLE = """<style>body{font:16px/1.55 system-ui;color:#193041;background:#f7f9fb;max-width:1240px;margin:auto;padding:30px}h1{line-height:1.2}h2{margin-top:32px}li{margin:6px 0}img{width:100%;height:auto}a{color:#07668e}table{border-collapse:collapse;font-size:13px;background:white}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:right}.scroll{overflow:auto}.gallery{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0;padding:10px;background:white}code{overflow-wrap:anywhere}.status{padding:14px;background:#e5f0f5}summary{cursor:pointer;font-weight:600}@media(max-width:700px){.gallery{grid-template-columns:1fr}}</style>"""
 
 
-def prepare_metrics(base, nuclear, plate_map):
+def prepare_metrics(base, nuclear, plate_map, baseline_day):
     assert not base.duplicated(["well", "day"]).any()
     expected = {
         (f"{r}{c:02d}", d) for r in "CDEFGHIJKLMN" for c in range(3, 11) for d in range(5, 18)
@@ -43,18 +43,31 @@ def prepare_metrics(base, nuclear, plate_map):
     df["plate_block"] = df.well.map(lambda w: mapping[w][1])
     assert (df[df.day == 5].groupby("condition").size() == 24).all()
     assert (df[df.day == 5].groupby(["condition", "plate_block"]).size() == 12).all()
+    return add_baseline_fold(df, baseline_day).sort_values(["well", "day"])
+
+
+def fold_col(key, baseline_day):
+    return f"{key}_day{baseline_day}_fold"
+
+
+def add_baseline_fold(df, baseline_day):
+    """Divide each readout by the same well's value on ``baseline_day`` (zero baseline -> NaN)."""
+    assert baseline_day in set(df.day), f"baseline day {baseline_day} not acquired"
     for key, _, _ in READOUTS:
-        baseline = df[df.day == 5].set_index("well")[key]
+        baseline = df[df.day == baseline_day].set_index("well")[key]
         denominators = df.well.map(baseline).replace(0, np.nan)
-        df[key + "_day5_fold"] = df[key] / denominators
-    return df.sort_values(["well", "day"])
+        df[fold_col(key, baseline_day)] = df[key] / denominators
+    return df
 
 
-def summarize(df):
+def summarize(df, baseline_day):
     rows = []
     for (condition, day), g in df.groupby(["condition", "day"]):
         for key, _, _ in READOUTS:
-            for mode, col in [("raw", key), ("day5_fold", key + "_day5_fold")]:
+            for mode, col in [
+                ("raw", key),
+                (f"day{baseline_day}_fold", fold_col(key, baseline_day)),
+            ]:
                 x = g[col].dropna()
                 rows.append(
                     {
@@ -71,12 +84,12 @@ def summarize(df):
     return pd.DataFrame(rows)
 
 
-def plot_summary(df, destination, title, individual=False, pdf=True):
+def plot_summary(df, destination, title, baseline_day, individual=False, pdf=True):
     fig, axes = plt.subplots(2, 3, figsize=(15, 8.7), layout="constrained")
     for j, (key, label, unit) in enumerate(READOUTS):
         for i in range(2):
             ax = axes[i, j]
-            col = key if i == 0 else key + "_day5_fold"
+            col = key if i == 0 else fold_col(key, baseline_day)
             for condition, color in COLORS.items():
                 g = df[df.condition == condition]
                 if g.empty:
@@ -105,9 +118,9 @@ def plot_summary(df, destination, title, individual=False, pdf=True):
                     label=f"{condition} (n={n} wells)" if n > 1 else condition,
                 )
             ax.set(
-                title=label if i == 0 else f"{label}: relative to day 5",
+                title=label if i == 0 else f"{label}: relative to day {baseline_day}",
                 xlabel="Experimental day",
-                ylabel=unit if i == 0 else "Fold of day 5 (within each well)",
+                ylabel=unit if i == 0 else f"Fold of day {baseline_day} (within each well)",
                 xticks=range(5, 18),
                 xlim=(4.7, 17.3),
             )
@@ -144,19 +157,23 @@ def bullets(items):
     return "<ul>" + "".join(f"<li>{x}</li>" for x in items) + "</ul>"
 
 
-def definitions():
+def fold_definition(baseline_day):
+    return f"<b>Day-{baseline_day} fold:</b> each well divided by its own day-{baseline_day} value before condition summaries. Shading shows the middle 50% of wells (IQR), not a confidence interval."
+
+
+def definitions(baseline_day):
     return bullets(
         [
             "<b>Nuclei:</b> mNG-positive nuclear candidates per acquired field; masks need biological review. Counts do not measure individual-cell survival.",
             "<b>mCherry:</b> mean raw red intensity over valid field pixels, in camera units (ADU).",
             "<b>Nuclear mNG:</b> raw mean intensity within each nuclear mask, averaged with equal weight per nucleus. No background subtraction; mask selection can affect this mean.",
-            "<b>Day-5 fold:</b> each well divided by its own day-5 value before condition summaries. Shading shows the middle 50% of wells (IQR), not a confidence interval.",
+            fold_definition(baseline_day),
             "<b>Conditions:</b> WT61, KO61, WT62 and KO62 from the experiment plate map; 24 wells each (12 per C–H/I–N block). KO denotes GRN mutant. Both genotypes carry the red reporter; no reporter-negative control. Summaries are descriptive well-level comparisons.",
         ]
     )
 
 
-def compact_well(old, df, cfg, well):
+def compact_well(old, df, cfg, well, baseline_day):
     table = re.search(
         r'<h2>First-to-last observed changes</h2><div class="scroll">.*?</table></div>',
         old,
@@ -167,11 +184,11 @@ def compact_well(old, df, cfg, well):
     return (
         header(f"{well}: nuclei and fluorescence over time")
         + f"<h1>{well} · {condition}</h1><p class='status'>13/13 images verified · experimental days 5–17 · automated first pass; biological mask review pending.</p>"
-        + '<a href="readout_summary.png"><img src="readout_summary.png" alt="Nuclei counts, mCherry and nuclear mNG across days 5–17; raw and day-5 fold"></a><p><a href="readout_summary.pdf">Three-readout summary PDF</a> · <a href="../../longitudinal_summary_metrics.csv">All readouts CSV</a> · <a href="../../report.html">Plate overview</a></p>'
+        + f'<a href="readout_summary.png"><img src="readout_summary.png" alt="Nuclei counts, mCherry and nuclear mNG across days 5–17; raw and day-{baseline_day} fold"></a><p><a href="readout_summary.pdf">Three-readout summary PDF</a> · <a href="../../longitudinal_summary_metrics.csv">All readouts CSV</a> · <a href="../../report.html">Plate overview</a></p>'
         + '<details><summary>Additional mCherry plots and original downloads</summary><a href="longitudinal_summary.png"><img src="longitudinal_summary.png" alt="Additional mCherry time courses"></a><p><a href="well_day_metrics.csv">Original measurements CSV</a> · <a href="endpoint_summary.csv">Endpoint CSV</a> · <a href="longitudinal_summary.pdf">Original summary PDF</a> · <a href="nuclei_counts.png">Nuclei plot</a> · <a href="mcherry_signal.png">mCherry plot</a></p></details>'
         + table
         + "<h2>Readouts</h2>"
-        + definitions()
+        + definitions(baseline_day)
         + bullets(
             [
                 "<b>Corrected mCherry:</b> subtracts each image’s 10th percentile of valid block-averaged red pixels. Diffuse biological signal can shift this estimate; retain the raw curve.",
@@ -243,7 +260,14 @@ def main():
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--plate-map", type=Path, required=True)
     ap.add_argument("--backups", type=Path, required=True)
+    ap.add_argument(
+        "--baseline-day",
+        type=int,
+        default=6,
+        help="Experimental day each well is normalized to for the fold readouts (default 6).",
+    )
     args = ap.parse_args()
+    b = args.baseline_day
     root = args.output
     original_path = root / "well_day_metrics.csv"
     source_hash = hashlib.sha256(original_path.read_bytes()).hexdigest()
@@ -251,18 +275,23 @@ def main():
         pd.read_csv(original_path),
         pd.read_csv(root / "nuclear_mng_metrics.csv"),
         pd.read_csv(args.plate_map),
+        b,
     )
     df.to_csv(root / "longitudinal_summary_metrics.csv", index=False)
-    summary = summarize(df)
+    summary = summarize(df, b)
     summary.to_csv(root / "condition_day_summary.csv", index=False)
     (root / "longitudinal_plate_map.csv").write_bytes(args.plate_map.read_bytes())
     plot_summary(
-        df, root / "plate_longitudinal_summary", "Full plate · nuclei and fluorescence · days 5–17"
+        df,
+        root / "plate_longitudinal_summary",
+        "Full plate · nuclei and fluorescence · days 5–17",
+        b,
     )
     plot_summary(
         df,
         root / "plate_individual_wells",
         "Full plate · individual well trajectories",
+        b,
         individual=True,
     )
     for i, (well, g) in enumerate(df.groupby("well")):
@@ -271,19 +300,20 @@ def main():
         inv = pd.read_csv(out / "image_inventory.csv")
         assert set(inv.exposure_488_ms) == {100} and set(inv.exposure_561_ms) == {100}
         assert cfg["scale"] == 2
-        plot_summary(g, out / "readout_summary", f"{well} · {g.condition.iloc[0]} · days 5–17")
+        plot_summary(g, out / "readout_summary", f"{well} · {g.condition.iloc[0]} · days 5–17", b)
         backup = args.backups / "wells" / well / "report.html"
         old = (backup if backup.exists() else out / "report.html").read_text()
-        replace_report(out / "report.html", compact_well(old, g, cfg, well), root, args.backups)
+        replace_report(out / "report.html", compact_well(old, g, cfg, well, b), root, args.backups)
         if (i + 1) % 12 == 0:
             print(f"Reports updated: {i + 1}/96", flush=True)
     original = args.backups / "report.html"
+    current = (root / "report.html").read_text()
     old = (original if original.exists() else root / "report.html").read_text()
     table = re.search(r"<table>.*?</table>", old, re.DOTALL).group()
     body = (
         header("Full-plate longitudinal summary")
         + '<h1>Nuclei and fluorescence over time</h1><p class="status">96/96 wells · 1,248/1,248 images · experimental days 5–17</p><a href="plate_longitudinal_summary.png"><img src="plate_longitudinal_summary.png" alt="Counts, mCherry and nuclear mNG across experimental days; raw and baseline-normalized"></a><p><a href="plate_longitudinal_summary.pdf">Summary PDF</a> · <a href="longitudinal_summary_metrics.csv">All readouts CSV</a> · <a href="condition_day_summary.csv">Condition/day medians and IQR CSV</a></p><h2>Reading the plots</h2>'
-        + definitions()
+        + definitions(b)
         + '<details><summary>Individual well trajectories</summary><a href="plate_individual_wells.png"><img src="plate_individual_wells.png" alt="All 96 individual well trajectories"></a><a href="plate_individual_wells.pdf">Individual trajectories PDF</a></details><h2>Method and limits</h2>'
         + bullets(
             [
@@ -296,6 +326,11 @@ def main():
         + table
         + "</html>"
     )
+    if current != old and "<h2>Reading the plots</h2>" in current:
+        # ponytail: later stages append sections to the plate report; on a rerun only swap the
+        # baseline definition instead of rebuilding, so those sections survive.
+        body, n = re.subn(r"<b>Day-\d+ fold:</b>[^<]*", fold_definition(b), current)
+        assert n == 1, n
     replace_report(root / "report.html", body, root, args.backups)
     assert hashlib.sha256(original_path.read_bytes()).hexdigest() == source_hash
     provenance = {
@@ -305,7 +340,8 @@ def main():
         "original_measurements_sha256": source_hash,
         "plate_map_sha256": hashlib.sha256(args.plate_map.read_bytes()).hexdigest(),
         "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "summary": "Condition median and IQR; within-well day-5 normalization; descriptive wells, not confidence intervals",
+        "baseline_day": b,
+        "summary": f"Condition median and IQR; within-well day-{b} normalization; descriptive wells, not confidence intervals",
         "reports_verified": 97,
         "original_links_preserved": True,
     }

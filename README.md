@@ -56,6 +56,8 @@ PYTHONPATH=src .venv/bin/python scripts/measure_nuclear_mng.py --output /path/to
 PYTHONPATH=src .venv/bin/python scripts/build_longitudinal_plate_summary.py --output /path/to/output --plate-map longitudinal_plate_map.csv --backups /path/to/report-backups
 ```
 
+`--baseline-day` (default 6, chosen 2026-11-16 at the biologist check-in) sets the day each well's fold readouts are normalized to; the fold columns are named `<readout>_day<N>_fold`. On a rerun the plate report keeps sections appended by later stages and only the fold definition is swapped. The `*_fold_baseline` columns written by the counts stage still use the first acquired day.
+
 `handoff/README.txt` and `handoff/code_manifest.json` describe the historical v2 deployment. Use this README and `setup.sh` for the consolidated repository. Git tags preserve the original handoff files exactly.
 
 ## Recovery
