@@ -63,7 +63,15 @@ PYTHONPATH=src .venv/bin/python scripts/measure_well_spatial.py --output /path/t
 PYTHONPATH=src .venv/bin/python scripts/build_well_comparisons.py --output /path/to/output
 ```
 
-`--baseline-day` (default 6, chosen 2026-11-16 at the biologist check-in) sets the day each well's fold readouts are normalized to; the fold columns are named `<readout>_day<N>_fold`. On a rerun the plate report keeps sections appended by later stages and only the fold definition is swapped. The `*_fold_baseline` columns written by the counts stage still use the first acquired day. The comparisons builder used to hardcode day 5; it is now in this repository and follows the provenance value.
+`--baseline-day` (default 6, chosen 2026-11-16 at the biologist check-in) sets the day each well's fold readouts are normalized to; the fold columns are named `<readout>_day<N>_fold`. On a rerun the plate report keeps sections appended by later stages and only the fold definition is swapped. The counts stage (`run_longitudinal_counts.py --baseline-day`, default 6) writes the same baseline into `baseline_day` and the `*_change_baseline` / `*_fold_baseline` columns; a well that has not reached the baseline day yet falls back to its first observed day. The comparisons builder used to hardcode day 5; it is now in this repository and follows the provenance value.
+
+To move an already finished output tree to a new baseline without rerunning Cellpose:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/rebase_counts_baseline.py --output /path/to/output --report-backups /path/to/report-backups --keep /path/to/output/counts_day5_20261116
+```
+
+then rerun the summary and comparisons builders above. Raw measurement columns are unchanged; the file hash of `well_day_metrics.csv` moves, so provenance JSONs written afterwards record the new one.
 
 `handoff/README.txt` and `handoff/code_manifest.json` describe the historical v2 deployment. Use this README and `setup.sh` for the consolidated repository. Git tags preserve the original handoff files exactly.
 

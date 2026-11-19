@@ -56,7 +56,7 @@ def test_baseline_is_per_well_and_zero_baseline_is_nan():
             "mcherry_integrated_per_nucleus": [500, 0, 250, 200],
         }
     )
-    out = add_baseline_changes(df)
+    out = add_baseline_changes(df, baseline_day=5)
     assert out.loc[(out.well == "A") & (out.day == 6), "nuclei_count_fold_baseline"].iloc[0] == 2
     assert np.isnan(
         out.loc[(out.well == "B") & (out.day == 6), "nuclei_count_fold_baseline"].iloc[0]
@@ -65,6 +65,14 @@ def test_baseline_is_per_well_and_zero_baseline_is_nan():
         out.loc[(out.well == "A") & (out.day == 6), "mcherry_mean_raw_change_baseline"].iloc[0]
         == 100
     )
+    out6 = add_baseline_changes(df)  # default baseline is day 6
+    assert (out6.baseline_day == 6).all()
+    assert (
+        out6.loc[(out6.well == "A") & (out6.day == 5), "nuclei_count_fold_baseline"].iloc[0] == 0.5
+    )
+    assert out6.loc[(out6.well == "A") & (out6.day == 6), "nuclei_count_fold_baseline"].iloc[0] == 1
+    partial = add_baseline_changes(df[df.day == 5])  # baseline day not reached yet
+    assert (partial.baseline_day == 5).all()
 
 
 def test_model_normalization_cannot_mutate_saved_green():

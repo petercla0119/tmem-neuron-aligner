@@ -79,8 +79,13 @@ def quantify_frame(red, labels, valid, pixel_um, scale, background):
     return metrics, cells
 
 
-def add_baseline_changes(frame: pd.DataFrame):
-    """First observed day per well is baseline; nonpositive denominators yield NaN."""
+def add_baseline_changes(frame: pd.DataFrame, baseline_day: int = 6):
+    """Per-well change and fold relative to ``baseline_day``; nonpositive denominators yield NaN.
+
+    Day 6 is the default (the nuclei-count peak; chosen at the 2026-11-16 check-in). Wells that
+    have not yet reached the baseline day fall back to their first observed day so partial runs
+    still produce a frame; the recorded ``baseline_day`` column makes that visible.
+    """
     frame = frame.sort_values(["well", "day"]).copy()
     metrics = [
         "nuclei_count",
@@ -89,7 +94,8 @@ def add_baseline_changes(frame: pd.DataFrame):
         "mcherry_integrated_per_nucleus",
     ]
     for _, group in frame.groupby("well"):
-        baseline = group.iloc[0]
+        on_day = group[group.day == baseline_day]
+        baseline = on_day.iloc[0] if len(on_day) else group.iloc[0]
         frame.loc[group.index, "baseline_day"] = baseline.day
         for key in metrics:
             frame.loc[group.index, key + "_change_baseline"] = group[key] - baseline[key]

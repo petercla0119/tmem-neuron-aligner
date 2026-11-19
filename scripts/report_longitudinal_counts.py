@@ -56,6 +56,7 @@ def main():
             {
                 "Well": well,
                 "First day": int(first.day),
+                "Baseline day": int(last.baseline_day),
                 "Last day": int(last.day),
                 "Nuclei first": int(first.nuclei_count),
                 "Nuclei last": int(last.nuclei_count),

@@ -123,11 +123,11 @@ def overlay(green, red, labels, row, out):
     plt.close(fig)
 
 
-def plots(df, out):
+def plots(df, out, baseline_day):
     colors = dict(zip(sorted(df.well.unique()), plt.get_cmap("tab10").colors))
     panels = [
         ("nuclei_count", "Detected nuclei", "nuclei"),
-        ("nuclei_count_fold_baseline", "Nuclei / day 5", "fold"),
+        ("nuclei_count_fold_baseline", f"Nuclei / day {baseline_day}", "fold"),
         ("mcherry_mean_raw", "mCherry mean · raw", "ADU"),
         ("mcherry_mean_bg_corrected", "mCherry mean · background corrected", "ADU"),
         (
@@ -135,7 +135,11 @@ def plots(df, out):
             "Total corrected mCherry / nucleus",
             "ADU·pixels / nucleus",
         ),
-        ("mcherry_mean_bg_corrected_fold_baseline", "Corrected mCherry / day 5", "fold"),
+        (
+            "mcherry_mean_bg_corrected_fold_baseline",
+            f"Corrected mCherry / day {baseline_day}",
+            "fold",
+        ),
     ]
     fig, axs = plt.subplots(2, 3, figsize=(15, 9))
     for ax, (key, title, unit) in zip(axs.flat, panels):
@@ -179,6 +183,7 @@ def main():
     ap.add_argument("--scale", type=int, default=2)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--baseline-day", type=int, default=6)
     args = ap.parse_args()
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
@@ -293,17 +298,17 @@ def main():
             for r in inv.itertuples()
             if (out / "frames" / f"{r.well}_d{r.day}.json").exists()
         ]
-        df = add_baseline_changes(pd.DataFrame(rows))
+        df = add_baseline_changes(pd.DataFrame(rows), args.baseline_day)
         df.to_csv(out / "well_day_metrics.csv", index=False)
-        plots(df, out)
+        plots(df, out, args.baseline_day)
     rows = [
         json.loads((out / "frames" / f"{r.well}_d{r.day}.json").read_text())
         for r in inv.itertuples()
         if (out / "frames" / f"{r.well}_d{r.day}.json").exists()
     ]
-    df = add_baseline_changes(pd.DataFrame(rows))
+    df = add_baseline_changes(pd.DataFrame(rows), args.baseline_day)
     df.to_csv(out / "well_day_metrics.csv", index=False)
-    plots(df, out)
+    plots(df, out, args.baseline_day)
     print(f"FINISHED: {len(df)}/{len(inv)} frames in {out}", flush=True)
 
 
